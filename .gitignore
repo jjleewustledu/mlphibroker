@@ -1,0 +1,12 @@
+# mlphibroker runs in the PHI zone: never commit data, outputs, crosswalks or logs.
+data/
+out/
+output/
+*_PHI.csv
+crosswalk*.csv
+*.log
+*.nii
+*.nii.gz
+*.mat
+*.asv
+.DS_Store

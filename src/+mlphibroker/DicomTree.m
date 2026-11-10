@@ -1,0 +1,122 @@
+classdef DicomTree
+    %DICOMTREE  Inventory of a heterogeneous DICOM tree: one row per series, classified by kind.
+    %   t = mlphibroker.DicomTree(root) uses dicomCollection (Image Processing Toolbox) over all
+    %   subfolders, then reads ONE header per series (dicominfo, header only) for PatientID,
+    %   FrameOfReferenceUID, SeriesNumber and the PET frame count. Files that dicomCollection does
+    %   not group (RTSTRUCT and other non-image objects) are swept separately with isdicom.
+    %   Kinds: pet_dynamic, pet_static, ct, rtstruct, seg, other. PHI (names, dates, ids) stays
+    %   in the in-memory table and is never written by this class.
+
+    properties (SetAccess = private)
+        Root
+        Series table   % PatientID, StudyInstanceUID, SeriesInstanceUID, FrameOfReferenceUID,
+                       % Modality, Kind, SeriesNumber, Frames, Files (cellstr), FirstHeader (struct)
+    end
+
+    methods
+        function this = DicomTree(root)
+            arguments
+                root {mustBeFolder}
+            end
+            this.Root = char(root);
+            coll = dicomCollection(this.Root, 'IncludeSubfolders', true);
+            rows = {};
+            seen = {};
+            for i = 1:height(coll)
+                files = cellstr(coll.Filenames{i});
+                seen = [seen; files(:)]; %#ok<AGROW>
+                rows{end+1} = mlphibroker.DicomTree.describe(files); %#ok<AGROW>
+            end
+            % Sweep for DICOM objects outside the collection (RTSTRUCT, SEG, SR, REG ...)
+            all = dir(fullfile(this.Root, '**', '*'));
+            all = all(~[all.isdir]);
+            rest = setdiff(fullfile({all.folder}, {all.name}), seen);
+            bySeries = containers.Map('KeyType', 'char', 'ValueType', 'any');
+            for i = 1:numel(rest)
+                p = rest{i};
+                try
+                    if ~isdicom(p), continue; end
+                    h = dicominfo(p, 'UseDictionaryVR', true);
+                catch
+                    continue
+                end
+                if ~isfield(h, 'SeriesInstanceUID'), continue; end
+                k = h.SeriesInstanceUID;
+                if isKey(bySeries, k), v = bySeries(k); v{end+1} = p; bySeries(k) = v; %#ok<AGROW>
+                else, bySeries(k) = {p}; end
+            end
+            ks = keys(bySeries);
+            for i = 1:numel(ks)
+                rows{end+1} = mlphibroker.DicomTree.describe(bySeries(ks{i})); %#ok<AGROW>
+            end
+            if isempty(rows)
+                this.Series = table();
+            else
+                this.Series = vertcat(rows{:});
+            end
+        end
+
+        function rows = seriesOfStudy(this, studyUid)
+            rows = this.Series(strcmp(this.Series.StudyInstanceUID, studyUid), :);
+        end
+
+        function c = countByKind(this)
+            c = struct();
+            kinds = {'pet_dynamic', 'pet_static', 'ct', 'rtstruct', 'seg', 'other'};
+            for i = 1:numel(kinds)
+                c.(kinds{i}) = sum(strcmp(this.Series.Kind, kinds{i}));
+            end
+        end
+
+        function ids = uniquePatients(this)
+            ids = unique(this.Series.PatientID, 'stable');
+        end
+    end
+
+    methods (Static, Access = private)
+        function row = describe(files)
+            files = cellstr(files);
+            h = dicominfo(files{1}, 'UseDictionaryVR', true);
+            get = @(f, d) mlphibroker.DicomTree.field(h, f, d);
+            modality = upper(char(get('Modality', '')));
+            frames = 1;
+            switch modality
+                case 'PT'
+                    nts = get('NumberOfTimeSlices', []);
+                    if ~isempty(nts) && nts > 1
+                        frames = double(nts);
+                    else
+                        frames = mlphibroker.DicomTree.countAcquisitions(files);
+                    end
+                    if frames > 1, kind = 'pet_dynamic'; else, kind = 'pet_static'; end
+                case 'CT', kind = 'ct';
+                case 'RTSTRUCT', kind = 'rtstruct';
+                case 'SEG', kind = 'seg';
+                otherwise, kind = 'other';
+            end
+            row = table({char(get('PatientID', ''))}, {char(get('StudyInstanceUID', ''))}, ...
+                {char(get('SeriesInstanceUID', ''))}, {char(get('FrameOfReferenceUID', ''))}, ...
+                {modality}, {kind}, double(get('SeriesNumber', NaN)), frames, {files(:)'}, {h}, ...
+                'VariableNames', {'PatientID', 'StudyInstanceUID', 'SeriesInstanceUID', ...
+                'FrameOfReferenceUID', 'Modality', 'Kind', 'SeriesNumber', 'Frames', 'Files', 'FirstHeader'});
+        end
+
+        function v = field(h, f, d)
+            if isfield(h, f) && ~isempty(h.(f)), v = h.(f); else, v = d; end
+        end
+
+        function n = countAcquisitions(files)
+            % Distinct AcquisitionNumber over at most 64 sampled headers (cheap dynamic test).
+            idx = unique(round(linspace(1, numel(files), min(64, numel(files)))));
+            acq = [];
+            for i = idx
+                try
+                    h = dicominfo(files{i}, 'UseDictionaryVR', true);
+                    if isfield(h, 'AcquisitionNumber'), acq(end+1) = double(h.AcquisitionNumber); end %#ok<AGROW>
+                catch
+                end
+            end
+            n = max(1, numel(unique(acq)));
+        end
+    end
+end
