@@ -99,7 +99,8 @@ classdef PetSession
             sc = struct();
             sc.Subject = sub; sc.Session = ses; sc.Tracer = ['trc-' token]; sc.Modality = 'PET';
             sc.TracerRadionuclide = isotope; sc.RadionuclideHalfLife = halflife_s; sc.halflife = halflife_s;
-            if isfield(kept, 'Radiopharmaceutical'), sc.Radiopharmaceutical = kept.Radiopharmaceutical; end
+            if isfield(kept, 'Radiopharmaceutical'), sc.Radiopharmaceutical = kept.Radiopharmaceutical;
+            elseif isfield(kept, 'TracerName'), sc.Radiopharmaceutical = kept.TracerName; end   % idif2026 reads Radiopharmaceutical
             sc.times = times; sc.taus = taus; sc.timesMid = timesMid;
             sc.timeUnit = 'second'; sc.timeAnchor = 'scan_start';
             dc = ''; if isfield(kept, 'DecayCorrection'), dc = upper(char(kept.DecayCorrection)); end

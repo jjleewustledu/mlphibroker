@@ -19,6 +19,11 @@ classdef Test_TracerTable < matlab.unittest.TestCase
             tok = mlphibroker.TracerTable.resolve(struct('Radiopharmaceutical', 'Oxygen O15', 'RadionuclideHalfLife', 122.24));
             this.verifyEqual(tok, 'oo');
         end
+        function test_bids_pet_tracername_key(this)
+            % dcm2niix >= v1.0.20261029 writes TracerName instead of Radiopharmaceutical.
+            [tok, iso] = mlphibroker.TracerTable.resolve(struct('TracerName', 'Fludeoxyglucose F18', 'RadionuclideHalfLife', 6586.2));
+            this.verifyEqual(tok, 'fdg'); this.verifyEqual(iso, '18F');
+        end
         function test_halflife_disagreement_refused(this)
             this.verifyError(@() mlphibroker.TracerTable.resolve(struct('Radiopharmaceutical', 'Fludeoxyglucose F18', 'RadionuclideHalfLife', 122.24)), 'mlphibroker:isotope');
         end

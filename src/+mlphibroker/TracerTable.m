@@ -21,8 +21,9 @@ classdef TracerTable
     methods (Static)
         function [token, isotope, halflife_s] = resolve(sc, opts)
             T = mlphibroker.TracerTable.ROWS;
-            name = '';
+            name = '';   % dcm2niix <= 2025 writes Radiopharmaceutical; >= 2026 writes BIDS-PET TracerName
             if isfield(sc, 'Radiopharmaceutical'), name = lower(char(sc.Radiopharmaceutical)); end
+            if isempty(name) && isfield(sc, 'TracerName'), name = lower(char(sc.TracerName)); end
             if ~isfield(sc, 'RadionuclideHalfLife') || isempty(sc.RadionuclideHalfLife)
                 error('mlphibroker:halflife', 'RadionuclideHalfLife missing: the isotope cannot be verified');
             end
