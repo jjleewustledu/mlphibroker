@@ -87,15 +87,15 @@ classdef SidecarPolicy
             %   header per series (PatientName, OperatorsName, ReferringPhysicianName,
             %   PerformingPhysicianName, PhysiciansOfRecord, RequestingPhysician,
             %   NameOfPhysiciansReadingStudy, InstitutionName, InstitutionalDepartmentName,
-            %   StationName, PatientID, AccessionNumber, StudyID), splits names into words of three
+            %   StationName, DeviceSerialNumber, PatientID, AccessionNumber, StudyID), splits names into words of three
             %   or more letters, keeps the full strings too, adds `extra` (cellstr: coordinator,
             %   investigators, anyone who might appear in free text) and writes one entry per line.
             %   PHI: the file stays in the PHI zone. Review it and add names before converting.
             if nargin < 3, extra = {}; end
             fields = {'PatientName', 'OperatorsName', 'ReferringPhysicianName', 'PerformingPhysicianName', ...
                 'PhysiciansOfRecord', 'RequestingPhysician', 'NameOfPhysiciansReadingStudy', ...
-                'InstitutionName', 'InstitutionalDepartmentName', 'StationName', 'PatientID', ...
-                'AccessionNumber', 'StudyID'};
+                'InstitutionName', 'InstitutionalDepartmentName', 'StationName', 'DeviceSerialNumber', ...
+                'PatientID', 'AccessionNumber', 'StudyID'};
             tree = mlphibroker.DicomTree(root);
             names = {};
             for i = 1:height(tree.Series)
