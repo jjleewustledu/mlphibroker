@@ -42,6 +42,16 @@ classdef Test_SidecarPolicy < matlab.unittest.TestCase
             h = p.scan('zorbwickian'); this.verifyEqual(h.deny_list, 0);
             h = p.scan('ses-01 trc-fdg proc-shdeid'); this.verifyFalse(h.any);
         end
+        function test_dcm2niix_resolution_order(this)
+            % env var beats PATH; opts beats env var; a missing pinned path is an error, not a fallback.
+            old = getenv('MLPHIBROKER_DCM2NIIX');
+            restore = onCleanup(@() setenv('MLPHIBROKER_DCM2NIIX', old));
+            this.assumeTrue(~isempty(old) && isfile(old), 'needs a real dcm2niix in MLPHIBROKER_DCM2NIIX');
+            c = mlphibroker.Dcm2niix(struct()); this.verifyEqual(c.Exe, old);
+            c = mlphibroker.Dcm2niix(struct('Dcm2niixExe', old)); this.verifyEqual(c.Exe, old);
+            setenv('MLPHIBROKER_DCM2NIIX', fullfile(tempdir, 'no_such_dcm2niix'));
+            this.verifyError(@() mlphibroker.Dcm2niix(struct()), 'mlphibroker:dcm2niix');
+        end
         function test_report_refuses_dates(this)
             tmp = [tempname '.json'];
             this.verifyError(@() mlphibroker.Report.write(tmp, struct('note', '2001-02-03')), 'mlphibroker:report');

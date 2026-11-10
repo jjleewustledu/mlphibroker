@@ -81,8 +81,11 @@ except for `sub-9xxxxx` synthetic fixtures with `opts.SyntheticTest = true`.
 addpath('src'); results = runtests('test/+mlphibroker_unittest'); table(results)
 ```
 
-`Test_SafeHarbor` runs the whole batch on the synthetic fixture and needs dcm2niix on `PATH` or
-in the environment variable `MLPHIBROKER_DCM2NIIX`; it is skipped (not passed) otherwise.
+`Test_SafeHarbor` runs the whole batch on the synthetic fixture and needs dcm2niix; it is skipped
+(not passed) otherwise. dcm2niix is resolved in this order everywhere in the package:
+`opts.Dcm2niixExe`, then the environment variable `MLPHIBROKER_DCM2NIIX`, then `PATH`. Set the
+variable to your pinned copy and other installations (for example MRIcroGL's bundled dcm2niix)
+are never used and never touched.
 `Test_PublicSafety` fails if any tracked text file carries a real subject code, a dated session
 label or an e-mail address.
 

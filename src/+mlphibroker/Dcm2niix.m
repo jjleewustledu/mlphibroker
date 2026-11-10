@@ -13,8 +13,13 @@ classdef Dcm2niix
 
     methods
         function this = Dcm2niix(opts)
+            % Resolution order: opts.Dcm2niixExe, then the environment variable
+            % MLPHIBROKER_DCM2NIIX, then PATH. A pinned path (WO-0002) therefore always wins over
+            % whatever copy another application (e.g. MRIcroGL) placed on PATH.
             if nargin > 0 && isfield(opts, 'Dcm2niixExe') && ~isempty(opts.Dcm2niixExe)
                 this.Exe = char(opts.Dcm2niixExe);
+            elseif ~isempty(getenv('MLPHIBROKER_DCM2NIIX'))
+                this.Exe = getenv('MLPHIBROKER_DCM2NIIX');
             else
                 this.Exe = mlphibroker.Dcm2niix.findOnPath();
             end
