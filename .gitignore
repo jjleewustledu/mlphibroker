@@ -3,6 +3,7 @@ data/
 out/
 output/
 *_PHI.csv
+*_PHI.txt
 crosswalk*.csv
 *.log
 *.nii

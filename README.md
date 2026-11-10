@@ -15,7 +15,7 @@ investigators review them.
 
 ## Quick start (on MATTA)
 
-Three PHI-side files are involved, all kept in the PHI zone and never committed (`*_PHI.csv` is
+Four PHI-side files are involved, all kept in the PHI zone and never committed (`*_PHI.*` is
 git-ignored). Edit CSVs only in a **text editor** (Notepad++, VS Code, or MATLAB `readtable`/
 `writetable`); Excel strips leading zeros from ids, re-types dates and can drop the header row.
 
@@ -53,11 +53,23 @@ says why each value was proposed, and `<file>.README.txt` repeats the rules. Aut
 the values, or edit `Subject`/`Session` only. Re-running the template regenerates the same
 proposals (seeded), so edit the roster rather than the crosswalk for anything you want to keep.
 
-**Step 3. Convert and review.**
+**Step 3. Deny list: names that must not appear anywhere.** Built from every name-bearing header
+field in the tree (patient, operators, physicians, institution, station, ids), split into words,
+plus the names you add (coordinator, investigators, anyone who might appear in free text).
+
+```matlab
+mlphibroker.SidecarPolicy.denyListTemplate(root, 'D:\MIM\MASH\deny_names_PHI.txt', ...
+    {'Coordinator Lastname', 'Investigator Lastname'})
+```
+
+Review the file (one entry per line; entries under three characters are ignored; matching is
+case-insensitive on whole words). A hit in an output name or sidecar quarantines that pair.
+
+**Step 4. Convert and review.**
 
 ```matlab
 opts = struct('Crosswalk', 'D:\MIM\MASH\crosswalk_2026-10_PHI.csv', ...
-              'DenyListFile', 'D:\MIM\MASH\deny_names.txt');   % staff and participant names, one per line
+              'DenyListFile', 'D:\MIM\MASH\deny_names_PHI.txt');
 report = mlphibroker.SafeHarbor.run(root, outRoot, opts);
 ```
 

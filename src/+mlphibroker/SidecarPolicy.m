@@ -81,6 +81,50 @@ classdef SidecarPolicy
             end
         end
 
+        function names = denyListTemplate(root, outPath, extra)
+            %DENYLISTTEMPLATE  Build a deny list from every name-bearing header field in a DICOM tree.
+            %   names = mlphibroker.SidecarPolicy.denyListTemplate(root, outPath, extra) reads one
+            %   header per series (PatientName, OperatorsName, ReferringPhysicianName,
+            %   PerformingPhysicianName, PhysiciansOfRecord, RequestingPhysician,
+            %   NameOfPhysiciansReadingStudy, InstitutionName, InstitutionalDepartmentName,
+            %   StationName, PatientID, AccessionNumber, StudyID), splits names into words of three
+            %   or more letters, keeps the full strings too, adds `extra` (cellstr: coordinator,
+            %   investigators, anyone who might appear in free text) and writes one entry per line.
+            %   PHI: the file stays in the PHI zone. Review it and add names before converting.
+            if nargin < 3, extra = {}; end
+            fields = {'PatientName', 'OperatorsName', 'ReferringPhysicianName', 'PerformingPhysicianName', ...
+                'PhysiciansOfRecord', 'RequestingPhysician', 'NameOfPhysiciansReadingStudy', ...
+                'InstitutionName', 'InstitutionalDepartmentName', 'StationName', 'PatientID', ...
+                'AccessionNumber', 'StudyID'};
+            tree = mlphibroker.DicomTree(root);
+            names = {};
+            for i = 1:height(tree.Series)
+                h = tree.Series.FirstHeader{i};
+                for f = fields
+                    if ~isfield(h, f{1}) || isempty(h.(f{1})), continue; end
+                    v = h.(f{1});
+                    if isstruct(v)   % PN value representation (FamilyName, GivenName, ...)
+                        parts = struct2cell(v); parts = parts(cellfun(@(x) ischar(x) || isstring(x), parts));
+                        txt = strjoin(cellfun(@char, parts, 'UniformOutput', false), ' ');
+                    else
+                        txt = char(string(v));
+                    end
+                    txt = strtrim(txt);
+                    if numel(txt) >= 3, names{end+1} = txt; end %#ok<AGROW>
+                    words = regexp(txt, '[A-Za-z][A-Za-z''-]{2,}', 'match');
+                    names = [names, words]; %#ok<AGROW>
+                end
+            end
+            names = [names, cellstr(extra)];
+            names = unique(strtrim(names(~cellfun(@isempty, names))), 'stable');
+            % words that are PHI-free DICOM boilerplate and would only cause false quarantines
+            stop = {'none', 'anonymous', 'unknown', 'brain', 'head', 'pet', 'dynamic', 'static', 'delay', ...
+                'delayed', 'the', 'and', 'for', 'with', 'wholebody', 'whole', 'body'};
+            names = names(~ismember(lower(names), stop));
+            fid = fopen(outPath, 'w'); fprintf(fid, '%s\n', names{:}); fclose(fid);
+            fprintf('deny list template: %d entries -> %s (PHI; review, add coordinator/investigator names)\n', numel(names), outPath);
+        end
+
         function writeJson(path, s)
             fid = fopen(path, 'w'); fwrite(fid, jsonencode(s, 'PrettyPrint', true), 'char'); fclose(fid);
         end

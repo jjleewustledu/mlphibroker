@@ -193,6 +193,18 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             fid = fopen(bad, 'w'); fprintf(fid, '1,2,3,4\n5,6,7,8\n'); fclose(fid);
             this.verifyError(@() mlphibroker.Crosswalk.load(bad), 'mlphibroker:crosswalk');
         end
+        function test_deny_list_template_from_tree(this)
+            dp = fullfile(this.outRoot, 'deny_from_tree.txt');
+            names = mlphibroker.SidecarPolicy.denyListTemplate(this.root, dp, {'Coordinator Person'});
+            this.verifyTrue(all(ismember({'Synthetic', 'Alpha', 'Beta', 'Nobody', 'Synthetic Institute', ...
+                'SYNSTATION1', 'SN123456789', 'SYN000001', 'Coordinator Person'}, names)), strjoin(names, ','));
+            this.verifyFalse(any(strcmpi(names, 'brain')));   % boilerplate words are not deny entries
+            deny = mlphibroker.SidecarPolicy.readDenyList(dp);
+            this.verifyEqual(numel(deny), numel(names));
+            p = mlphibroker.SidecarPolicy(deny);
+            this.verifyTrue(p.scan('report by Dr Nobody').any);
+            this.verifyFalse(p.scan('sub-900001_ses-01_trc-fdg_proc-shdeid_pet').any);
+        end
         function test_crosswalk_minted_and_private(this)
             xw = readtable(fullfile(this.outRoot, 'crosswalk_PHI.csv'), 'TextType', 'char');
             this.verifyEqual(height(xw), 3);
