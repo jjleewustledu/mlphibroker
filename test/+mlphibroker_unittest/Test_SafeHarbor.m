@@ -176,6 +176,23 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             n1 = {dir(fullfile(out2, 'sub-900201', 'ses-01', '*.nii.gz')).name};
             this.verifyTrue(any(strcmp(n1, 'sub-900201_ses-01_trc-fdg_proc-shdeid_pet.nii.gz')), strjoin(n1, ','));
         end
+        function test_roster_template_round_trip(this)
+            rp = fullfile(this.outRoot, 'roster2_PHI.csv');
+            r = mlphibroker.Crosswalk.rosterTemplate(this.root, rp);
+            this.verifyEqual(height(r), 2);                                  % two persons
+            this.verifyTrue(all(cellfun(@isempty, r.Subject)));
+            r.Subject = {'sub-900031'; 'sub-900032'}; writetable(r, rp);
+            xp = fullfile(this.outRoot, 'xw2_PHI.csv');
+            t = mlphibroker.Crosswalk.template(this.root, xp, struct('Roster', rp));
+            this.verifyEqual(sort(unique(t.Subject))', {'sub-900031', 'sub-900032'});
+            this.verifyTrue(all(contains(t.Note, 'authoritative')));
+            % a header-less file is refused with a clear message
+            bad = fullfile(this.outRoot, 'bad_PHI.csv');
+            fid = fopen(bad, 'w'); fprintf(fid, 'a,b,c\n1,2,3\n'); fclose(fid);
+            this.verifyError(@() mlphibroker.Crosswalk.load(bad), 'mlphibroker:crosswalk');
+            fid = fopen(bad, 'w'); fprintf(fid, '1,2,3,4\n5,6,7,8\n'); fclose(fid);
+            this.verifyError(@() mlphibroker.Crosswalk.load(bad), 'mlphibroker:crosswalk');
+        end
         function test_crosswalk_minted_and_private(this)
             xw = readtable(fullfile(this.outRoot, 'crosswalk_PHI.csv'), 'TextType', 'char');
             this.verifyEqual(height(xw), 3);

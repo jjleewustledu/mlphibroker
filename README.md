@@ -15,60 +15,73 @@ investigators review them.
 
 ## Quick start (on MATTA)
 
+Three PHI-side files are involved, all kept in the PHI zone and never committed (`*_PHI.csv` is
+git-ignored). Edit CSVs only in a **text editor** (Notepad++, VS Code, or MATLAB `readtable`/
+`writetable`); Excel strips leading zeros from ids, re-types dates and can drop the header row.
+
 ```matlab
-addpath('C:\path\to\mlphibroker\src')
-root    = 'D:\phi\exports\test_case';      % the PHI DICOM tree: any depth, mixed folders, many subjects
-outRoot = 'D:\phi\safeharbor\test_case';   % PHI-side until the investigators have reviewed it
-
-% 1. Inventory the tree and write a crosswalk with PROPOSED codes (PHI: keep it in the PHI zone).
-%    Subject codes belong to the study coordinator (assigned at first contact; contacts that never
-%    enrolled leave gaps), so give the coordinator's roster: a CSV with Subject and PatientID and/or
-%    PatientName, kept in the PHI zone.
-mlphibroker.Crosswalk.template(root, 'D:\phi\crosswalk_PHI.csv', struct('Roster', 'D:\phi\roster_PHI.csv'))
-%    Subject is filled from the roster (a person missing from it is left empty and must be asked
-%    for); Session (one per visit day, random ordinal) is proposed; a Note column says why. Authorize
-%    by leaving the values, or edit. Without a roster, struct('SubjectPrefix', 'sub-ECL1i') fills
-%    PLACEHOLDERS numbered by first appearance, which do not match the coordinator's codes.
-
-% 2. Convert.
-opts = struct( ...
-    'Crosswalk',    'D:\phi\crosswalk_PHI.csv', ...
-    'Dcm2niixExe',  'C:\Users\<you>\tools\dcm2niix\v1.0.20261029\dcm2niix.exe', ...   % or MLPHIBROKER_DCM2NIIX
-    'DenyListFile', 'D:\phi\deny_names.txt');           % one staff/participant name per line
-report = mlphibroker.SafeHarbor.run(root, outRoot, opts);
-
-% 3. Review before anything leaves the PHI zone: shdeid_batch_report.json (refused, quarantined,
-%    dropped_key_names), every quarantine/ folder, and a sample of sidecars and file names.
+addpath('C:\Users\<you>\Documents\MATLAB\mlphibroker\src')
+root    = 'D:\MIM\MASH\2026-10__Studies';          % the PHI DICOM tree: any depth, mixed folders, many persons
+outRoot = 'D:\MIM\MASH\safeharbor_2026-10';         % PHI-side until the investigators have reviewed it
 ```
+
+**Step 1. Roster: who is who.** One row per person found in the tree, `Subject` empty.
+
+```matlab
+mlphibroker.Crosswalk.rosterTemplate(root, 'D:\MIM\MASH\roster_PHI.csv')
+```
+
+Fill `Subject` with the **study coordinator's code** for each person (for MASH, `sub-ECL1i005`
+style; for CCIR_01211, the key-vault `sub-108xxx`). The coordinator assigns codes at first contact
+and contacts that never enrolled leave gaps, so codes cannot be reconstructed from an export; the
+roster is the authority. A person exported under several `PatientID`s appears once (ids joined
+with `|`). Leave `Subject` empty for a person you cannot yet code: that person is refused later,
+never guessed.
+
+**Step 2. Crosswalk: which study is which visit.** One row per study, with proposals to authorize.
+
+```matlab
+mlphibroker.Crosswalk.template(root, 'D:\MIM\MASH\crosswalk_2026-10_PHI.csv', ...
+    struct('Roster', 'D:\MIM\MASH\roster_PHI.csv'))
+```
+
+`Subject` comes from the roster. `Session` is proposed as `ses-NN`: studies of one person on one
+`StudyDate` are one visit and share a `Session` (a dynamic and a delayed scan of one injection;
+their outputs are told apart by `run-01`, `run-02` in acquisition order); distinct days get random
+ordinals, so `ses-01` is not necessarily the earliest visit (SPEC-PHIBROKER §4.2). The `Note` column
+says why each value was proposed, and `<file>.README.txt` repeats the rules. Authorize by leaving
+the values, or edit `Subject`/`Session` only. Re-running the template regenerates the same
+proposals (seeded), so edit the roster rather than the crosswalk for anything you want to keep.
+
+**Step 3. Convert and review.**
+
+```matlab
+opts = struct('Crosswalk', 'D:\MIM\MASH\crosswalk_2026-10_PHI.csv', ...
+              'DenyListFile', 'D:\MIM\MASH\deny_names.txt');   % staff and participant names, one per line
+report = mlphibroker.SafeHarbor.run(root, outRoot, opts);
+```
+
+dcm2niix is resolved as `opts.Dcm2niixExe`, then the environment variable `MLPHIBROKER_DCM2NIIX`,
+then `PATH`; pin it with the variable and nothing else on the machine is used or touched. Before
+anything leaves the PHI zone, read `<outRoot>\shdeid_batch_report.json` (`refused`, `quarantined`,
+`dropped_key_names`, `dcm2niix_version`), look into every `quarantine\` folder, and open a sample
+of sidecars and file names.
+
+**Outputs** per session, under `<outRoot>/<sub>/<ses>/`:
+
+| File | Content |
+|---|---|
+| `<sub>_<ses>_trc-<token>[_run-NN]_proc-shdeid_pet.nii.gz` + `.json` | PET (dynamic or static); sidecar with `times`, `taus`, `timesMid` (s), `halflife`, `DecayCorrected`, `DecayCorrectionZeroTime` from `scan_start`, `AdminFromScanStart_s`, `TracerRadionuclide`, body weight, reconstruction keys |
+| `<sub>_<ses>[_run-NN]_proc-shdeid_ct.nii.gz` + `.json` | CT with acquisition parameters |
+| `<sub>_<ses>_roi-<name>[_run-NN]_proc-shdeid_mask.nii.gz` + `.json` | one uint8 mask per RTSTRUCT ROI on the referenced image grid |
+| `<sub>_<ses>_shdeid_report.json`, `<outRoot>/shdeid_batch_report.json` | counts only |
+| `quarantine/` | any pair whose name or sidecar failed the date, clock-time, dated-session or deny-list scan |
 
 Subject codes accepted by default: `sub-108xxx` (CCIR_01211), `sub-ECL1i001`-style (MASH, DOTA-ECL1i)
 and `sub-9xxxxx` (synthetic); `opts.SubjectPattern` (a regex) admits another project's range. Labels are
 BIDS alphanumerics, so `sub-ECL1i-001` is refused. For DOTA-ECL1i the nuclide ([68Ga] or [64Cu]) is read
 from the DICOM `RadionuclideHalfLife`, never assumed from the name; the token becomes `trc-gadotaecl1i` or
 `trc-cudotaecl1i` accordingly.
-
-One visit may hold several studies (a dynamic scan and a delayed scan of one injection): give those
-rows the same `Subject` and `Session`; their outputs are told apart by `run-01`, `run-02` in acquisition
-order, and the session report counts both. One person exported under several `PatientID`s is handled
-the same way: same `Subject` on every row; the template warns when a name carries several ids.
-
-Several subjects and visits in one folder are handled: every series is tagged by its own
-PatientID and StudyInstanceUID, and outputs are partitioned under `<outRoot>/<sub>/<ses>/`.
-
-Without a crosswalk, `opts.AutoCrosswalk = true` mints synthetic codes (`sub-9000NN`, random
-`ses-NN`) and writes `crosswalk_PHI.csv` into the output root. That file maps PatientIDs and
-**must never leave the PHI zone** (it is git-ignored). Real `sub-108xxx` codes come only from the
-key-vault crosswalk; codes are never guessed.
-
-Outputs per study, under `<outRoot>/<sub>/<ses>/`:
-
-| File | Content |
-|---|---|
-| `<sub>_<ses>_trc-<token>_proc-shdeid_pet.nii.gz` + `.json` | PET (dynamic or static); sidecar with `times`, `taus`, `timesMid` (s), `halflife`, `DecayCorrected`, `DecayCorrectionZeroTime` from `scan_start`, `AdminFromScanStart_s`, `TracerRadionuclide`, body weight, reconstruction keys |
-| `<sub>_<ses>_proc-shdeid_ct.nii.gz` + `.json` | CT with acquisition parameters |
-| `<sub>_<ses>_roi-<name>_proc-shdeid_mask.nii.gz` + `.json` | one uint8 mask per RTSTRUCT ROI on the referenced image grid |
-| `<sub>_<ses>_shdeid_report.json`, `<outRoot>/shdeid_batch_report.json` | counts only |
-| `quarantine/` | any pair whose name or sidecar failed the date, clock-time, dated-session or deny-list scan |
 
 ## How de-identification happens
 

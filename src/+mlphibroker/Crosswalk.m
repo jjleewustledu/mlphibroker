@@ -83,26 +83,26 @@ classdef Crosswalk
                         Subject{r} = code;
                         note{end+1} = 'Subject from the coordinator roster (authoritative)'; %#ok<AGROW>
                     elseif ~isempty(roster)
-                        note{end+1} = 'NOT IN ROSTER: ask the study coordinator for this person''s code; left empty'; %#ok<AGROW>
+                        note{end+1} = 'NOT IN ROSTER: ask the study coordinator for this person''s code (left empty)'; %#ok<AGROW>
                     elseif ~isempty(prefix)
                         Subject{r} = sprintf('%s%03d', prefix, k);
-                        note{end+1} = sprintf('PLACEHOLDER %d of %d by first appearance in this export; replace with the coordinator''s code', k, numel(persons)); %#ok<AGROW>
+                        note{end+1} = sprintf('PLACEHOLDER %d of %d by first appearance in this export (replace with the coordinator''s code)', k, numel(persons)); %#ok<AGROW>
                     else
                         note{end+1} = 'Subject: give opts.Roster (coordinator codes) or opts.SubjectPrefix (placeholders)'; %#ok<AGROW>
                     end
                     if numel(ids) > 1
-                        note{end+1} = sprintf('%d PatientIDs share this name: same Subject proposed', numel(ids)); %#ok<AGROW>
+                        note{end+1} = sprintf('%d PatientIDs share this name so one Subject is proposed', numel(ids)); %#ok<AGROW>
                     end
                     d = find(strcmp(days, StudyDate{r}), 1);
                     Session{r} = sprintf('ses-%02d', perm(d));
                     sameDay = sum(strcmp(StudyDate(rowsK), StudyDate{r}));
                     if sameDay > 1
-                        note{end+1} = sprintf('%d studies on one day = one visit: same Session (outputs run-01, run-02 by acquisition order)', sameDay); %#ok<AGROW>
+                        note{end+1} = sprintf('%d studies on one day = one visit: same Session (outputs run-01/run-02 by acquisition order)', sameDay); %#ok<AGROW>
                     end
                     if numel(days) > 1
-                        note{end+1} = sprintf('%d visit days: Session ordinals assigned at random, not by date', numel(days)); %#ok<AGROW>
+                        note{end+1} = sprintf('%d visit days: Session ordinals assigned at random and not by date', numel(days)); %#ok<AGROW>
                     end
-                    Note{r} = strjoin(note, '; ');
+                    Note{r} = strjoin(note, ' | ');
                 end
             end
             t = table(PatientID, PatientName, StudyDate, StudyDescription, Modalities, ...
@@ -118,16 +118,76 @@ classdef Crosswalk
             end
         end
 
+        function r = rosterTemplate(root, outPath)
+            %ROSTERTEMPLATE  One row per PERSON in the DICOM tree, Subject empty, for the coordinator's codes.
+            %   r = mlphibroker.Crosswalk.rosterTemplate(root, outPath) writes columns PatientName,
+            %   PatientIDs (all ids seen for that name, separated by '|'), Studies (count) and an empty
+            %   Subject. Fill Subject with the study coordinator's code (e.g. sub-ECL1i005) in a TEXT
+            %   editor, save, and pass the file as opts.Roster to template(). PHI: stays in the PHI zone.
+            tree = mlphibroker.DicomTree(root);
+            S = tree.Series;
+            [~, first] = unique(S.StudyInstanceUID, 'stable');
+            names = cell(numel(first), 1); ids = S.PatientID(first);
+            for i = 1:numel(first), names{i} = mlphibroker.Crosswalk.nameOf(S.FirstHeader{first(i)}); end
+            key = cellfun(@(nm, id) lower(strtrim(iff(~isempty(nm), nm, id))), names, ids, 'UniformOutput', false);
+            [~, ia, g] = unique(key, 'stable');
+            n = numel(ia);
+            PatientName = names(ia); PatientIDs = cell(n, 1); Studies = zeros(n, 1);
+            for k = 1:n
+                PatientIDs{k} = strjoin(unique(ids(g == k))', '|');
+                Studies(k) = sum(g == k);
+            end
+            Subject = repmat({''}, n, 1);
+            r = table(PatientName, PatientIDs, Studies, Subject);
+            writetable(r, outPath);
+            fprintf('roster template: %d persons -> %s (PHI; fill Subject with the coordinator''s codes, text editor only)\n', n, outPath);
+
+            function v = iff(c, a, b)
+                if c, v = a; else, v = b; end
+            end
+        end
+
+        function t = readCsv(path, what)
+            %READCSV  Read a crosswalk or roster CSV, keeping text as text; refuse a file whose header is gone.
+            if ~isfile(path), error(['mlphibroker:' what], '%s file not found: %s', what, path); end
+            t = readtable(path, 'TextType', 'char', 'Delimiter', ',', 'VariableNamingRule', 'preserve');
+            names = t.Properties.VariableNames;
+            names = regexprep(names, '^\xEF\xBB\xBF', '');           % UTF-8 byte-order mark from Excel
+            names = regexprep(names, '^x__', '');
+            t.Properties.VariableNames = names;
+            if all(startsWith(names, 'Var'))
+                error(['mlphibroker:' what], ['%s %s has no header row (an editor rewrote it). Regenerate it with ' ...
+                    'mlphibroker.Crosswalk.template / rosterTemplate and edit only in a text editor.'], what, path);
+            end
+        end
+
         function roster = loadRoster(path)
             %LOADROSTER  Coordinator roster: columns Subject and PatientID and/or PatientName (PHI-side).
             if ~isfile(path), error('mlphibroker:roster', 'roster file not found'); end
-            roster = readtable(path, 'TextType', 'char', 'Delimiter', ',');
+            roster = mlphibroker.Crosswalk.readCsv(path, 'roster');
+            if ismember('PatientIDs', roster.Properties.VariableNames) && ~ismember('PatientID', roster.Properties.VariableNames)
+                % rosterTemplate writes all ids of a person as 'id1|id2'; expand to one row per id
+                rows = {};
+                for i = 1:height(roster)
+                    for id = strsplit(char(string(roster.PatientIDs(i))), '|')
+                        rows{end+1} = table({strtrim(id{1})}, {char(string(roster.Subject(i)))}, 'VariableNames', {'PatientID', 'Subject'}); %#ok<AGROW>
+                    end
+                end
+                nm = {}; if ismember('PatientName', roster.Properties.VariableNames), nm = roster.PatientName; end
+                roster = vertcat(rows{:});
+                if ~isempty(nm), roster.PatientName = repmat({''}, height(roster), 1); end
+            end
             if ~ismember('Subject', roster.Properties.VariableNames) || ...
                     ~any(ismember({'PatientID', 'PatientName'}, roster.Properties.VariableNames))
                 error('mlphibroker:roster', 'roster needs a Subject column and a PatientID and/or PatientName column');
             end
             for f = intersect({'Subject', 'PatientID', 'PatientName'}, roster.Properties.VariableNames)
                 roster.(f{1}) = cellstr(string(roster.(f{1})));
+                roster.(f{1}) = strrep(roster.(f{1}), '<missing>', '');
+            end
+            empty = cellfun(@isempty, strtrim(roster.Subject));
+            if any(empty)
+                fprintf('note: %d roster rows have no Subject yet; those persons stay unresolved\n', sum(empty));
             end
         end
 
@@ -180,8 +240,7 @@ classdef Crosswalk
         end
 
         function xw = load(path)
-            if ~isfile(path), error('mlphibroker:crosswalk', 'crosswalk file not found'); end
-            xw = readtable(path, 'TextType', 'char', 'Delimiter', ',');
+            xw = mlphibroker.Crosswalk.readCsv(path, 'crosswalk');
             need = {'PatientID', 'Subject', 'StudyInstanceUID', 'Session'};
             for i = 1:numel(need)
                 if ~ismember(need{i}, xw.Properties.VariableNames)
