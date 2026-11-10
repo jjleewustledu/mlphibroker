@@ -3,8 +3,9 @@ classdef CtSeries
     %   [n, dropped, quarantined] = mlphibroker.CtSeries.convert(row, sub, ses, outDir, conv, policy)
 
     methods (Static)
-        function [n, dropped, quarantined, paths] = convert(row, sub, ses, outDir, conv, policy)
+        function [n, dropped, quarantined, paths] = convert(row, sub, ses, outDir, conv, policy, run)
             import mlphibroker.*
+            if nargin < 7 || isempty(run), run = 0; end
             n = 0; quarantined = 0; dropped = {}; paths = {};
             prefix = sprintf('%s_%s_ser-', sub, ses);
             tmpOut = tempname(); mkdir(tmpOut);
@@ -19,8 +20,7 @@ classdef CtSeries
                 sc.SafeHarbor = struct('tool', SafeHarbor.TOOL, 'version', SafeHarbor.VERSION, ...
                     'work_order', 'WO-0002r0', 'policy', 'allow_list', 'calendar_dates', 'none', ...
                     'clock_times', 'none', 'nifti_header_scrubbed', true);
-                base = sprintf('%s_%s_proc-shdeid_ct', sub, ses);
-                if numel(jsons) > 1, base = sprintf('%s_%s_run-%02d_proc-shdeid_ct', sub, ses, k); end
+                base = sprintf('%s_%s%s_proc-shdeid_ct', sub, ses, PetSession.runTag(run, k, numel(jsons)));
                 hits = policy.scan([jsonencode(sc) ' ' base]);
                 if hits.any
                     quarantined = quarantined + 1;

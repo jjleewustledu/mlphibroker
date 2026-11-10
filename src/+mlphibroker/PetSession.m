@@ -8,8 +8,9 @@ classdef PetSession
     %   RadiopharmaceuticalStartTime); every time is seconds from scan start, never a clock time.
 
     methods (Static)
-        function [n, dropped, quarantined, paths] = convert(row, sub, ses, outDir, conv, policy, opts)
+        function [n, dropped, quarantined, paths] = convert(row, sub, ses, outDir, conv, policy, opts, run)
             import mlphibroker.*
+            if nargin < 8 || isempty(run), run = 0; end
             n = 0; quarantined = 0; dropped = {}; paths = {};
             files = row.Files{1};
             admin = PetSession.adminOffset(files);
@@ -23,8 +24,7 @@ classdef PetSession
                 [token, isotope, halflife_s] = TracerTable.resolve(kept, opts);
                 [times, taus, timesMid] = PetSession.frameTiming(kept);
                 sc = PetSession.sidecar(kept, sub, ses, token, isotope, halflife_s, times, taus, timesMid, admin);
-                base = sprintf('%s_%s_trc-%s_proc-shdeid_pet', sub, ses, token);
-                if numel(jsons) > 1, base = sprintf('%s_%s_trc-%s_run-%02d_proc-shdeid_pet', sub, ses, token, k); end
+                base = sprintf('%s_%s_trc-%s%s_proc-shdeid_pet', sub, ses, token, PetSession.runTag(run, k, numel(jsons)));
                 hits = policy.scan([jsonencode(sc) ' ' base]);
                 if hits.any
                     quarantined = quarantined + 1;
@@ -133,6 +133,15 @@ classdef PetSession
             sc.SafeHarbor = struct('tool', SafeHarbor.TOOL, 'version', SafeHarbor.VERSION, 'work_order', 'WO-0002r0', ...
                 'policy', 'allow_list_then_relative_times', 'calendar_dates', 'none', 'clock_times', 'none', ...
                 'nifti_header_scrubbed', true);
+        end
+
+        function tag = runTag(run, k, nOut)
+            % run-NN names the study within a multi-study session; a series that dcm2niix splits
+            % into several outputs appends the output index so names never collide.
+            tag = '';
+            if run > 0 && nOut > 1, tag = sprintf('_run-%02d%02d', run, k);
+            elseif run > 0, tag = sprintf('_run-%02d', run);
+            elseif nOut > 1, tag = sprintf('_run-%02d', k); end
         end
 
         function quarantine(outDir, nii, json, base)

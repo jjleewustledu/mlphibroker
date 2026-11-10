@@ -12,8 +12,9 @@ classdef RtStruct
     %   scan, then become roi-<name> tokens (alphanumerics only). No dates, times, names or UIDs.
 
     methods (Static)
-        function [n, quarantined] = convert(rsRow, studyRows, written, sub, ses, outDir, policy)
+        function [n, quarantined] = convert(rsRow, studyRows, written, sub, ses, outDir, policy, run)
             import mlphibroker.*
+            if nargin < 8 || isempty(run), run = 0; end
             n = 0; quarantined = 0;
             info = dicominfo(rsRow.Files{1}{1}, 'UseDictionaryVR', true);
             ref = RtStruct.referenceSeries(info, rsRow, studyRows);
@@ -30,7 +31,7 @@ classdef RtStruct
                 name = char(contours.ROIs.Name(i));
                 token = lower(regexprep(name, '[^A-Za-z0-9]', ''));
                 if isempty(token), token = sprintf('roi%d', i); end
-                base = sprintf('%s_%s_roi-%s_proc-shdeid_mask', sub, ses, token);
+                base = sprintf('%s_%s_roi-%s%s_proc-shdeid_mask', sub, ses, token, PetSession.runTag(run, 1, 1));
                 sc = struct('Subject', sub, 'Session', ses, 'Modality', 'ROI', 'ROIName', name, ...
                     'ROINumber', double(contours.ROIs.Number(i)), 'ReferenceModality', char(ref.Modality), ...
                     'ReferenceSeriesNumber', ref.SeriesNumber, 'ReferenceFile', regexprep(refGz, '^.*[\\/]', ''), ...

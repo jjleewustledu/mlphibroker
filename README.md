@@ -42,6 +42,11 @@ BIDS alphanumerics, so `sub-ECL1i-001` is refused. For DOTA-ECL1i the nuclide ([
 from the DICOM `RadionuclideHalfLife`, never assumed from the name; the token becomes `trc-gadotaecl1i` or
 `trc-cudotaecl1i` accordingly.
 
+One visit may hold several studies (a dynamic scan and a delayed scan of one injection): give those
+rows the same `Subject` and `Session`; their outputs are told apart by `run-01`, `run-02` in acquisition
+order, and the session report counts both. One person exported under several `PatientID`s is handled
+the same way: same `Subject` on every row; the template warns when a name carries several ids.
+
 Several subjects and visits in one folder are handled: every series is tagged by its own
 PatientID and StudyInstanceUID, and outputs are partitioned under `<outRoot>/<sub>/<ses>/`.
 

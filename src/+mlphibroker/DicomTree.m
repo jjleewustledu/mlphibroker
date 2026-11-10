@@ -60,6 +60,29 @@ classdef DicomTree
             rows = this.Series(strcmp(this.Series.StudyInstanceUID, studyUid), :);
         end
 
+        function uids = orderStudiesByAcquisition(this, uids)
+            % Sort study UIDs by their earliest StudyDate+StudyTime (else AcquisitionTime) read from
+            % the first header of each series. PHI-side; only the resulting order is used.
+            uids = cellstr(uids);
+            if numel(uids) < 2, return; end
+            key = zeros(numel(uids), 1);
+            for i = 1:numel(uids)
+                rows = this.seriesOfStudy(uids{i});
+                best = inf;
+                for r = 1:height(rows)
+                    h = rows.FirstHeader{r};
+                    d = ''; t = '';
+                    if isfield(h, 'StudyDate'), d = char(string(h.StudyDate)); end
+                    if isfield(h, 'SeriesTime'), t = char(string(h.SeriesTime)); elseif isfield(h, 'AcquisitionTime'), t = char(string(h.AcquisitionTime)); end
+                    v = str2double([regexprep(d, '\D', '') sprintf('%06.0f', mlphibroker.PetSession.clockSeconds(t))]);
+                    if ~isnan(v), best = min(best, v); end
+                end
+                key(i) = best;
+            end
+            [~, order] = sort(key);
+            uids = uids(order);
+        end
+
         function c = countByKind(this)
             c = struct();
             kinds = {'pet_dynamic', 'pet_static', 'ct', 'rtstruct', 'seg', 'other'};

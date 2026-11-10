@@ -56,8 +56,15 @@ classdef Crosswalk
             Subject = repmat({''}, n, 1); Session = repmat({''}, n, 1);
             t = table(PatientID, PatientName, StudyDate, StudyDescription, Modalities, ...
                 StudyInstanceUID, Subject, Session);
-            t = sortrows(t, {'PatientID', 'StudyDate'});
+            t = sortrows(t, {'PatientName', 'StudyDate'});
             writetable(t, outPath);
+            [~, ~, gi] = unique(t.PatientName);
+            split = 0;
+            for g = 1:max(gi), if numel(unique(t.PatientID(gi == g))) > 1, split = split + 1; end, end
+            if split > 0
+                fprintf(['note: %d patient name(s) carry more than one PatientID; if they are one person, ' ...
+                    'give those rows the same Subject. Studies of one visit (e.g. dynamic + delayed) take the same Session.\n'], split);
+            end
             fprintf('crosswalk template: %d studies, %d patients -> %s (PHI; fill Subject and Session)\n', ...
                 n, numel(unique(PatientID)), outPath);
         end
@@ -139,9 +146,18 @@ classdef Crosswalk
             if any(bad), error('mlphibroker:crosswalk', '%d Subject codes do not match %s', sum(bad), pat); end
             bad = cellfun(@(s) isempty(regexp(s, '^ses-\d{2}$', 'once')), xw.Session);
             if any(bad), error('mlphibroker:crosswalk', '%d Session codes are not ses-NN (dated labels are refused)', sum(bad)); end
-            key = strcat(xw.Subject, '/', xw.Session);
-            if numel(unique(key)) ~= numel(key)
-                error('mlphibroker:crosswalk', 'duplicate Subject/Session pairs in the crosswalk');
+            % Several rows may share Subject/Session: one visit with several studies (e.g. a dynamic
+            % and a delayed scan of one injection); their outputs are told apart by run-NN. A
+            % StudyInstanceUID may appear once only.
+            if numel(unique(xw.StudyInstanceUID)) ~= numel(xw.StudyInstanceUID)
+                error('mlphibroker:crosswalk', 'a StudyInstanceUID appears more than once in the crosswalk');
+            end
+            pid = cell(0, 1);
+            for sub = unique(xw.Subject)'
+                pid = xw.PatientID(strcmp(xw.Subject, sub{1}));
+                if numel(unique(pid)) > 1
+                    fprintf('note: %s maps %d PatientIDs to one subject (accepted: same person, several ids)\n', sub{1}, numel(unique(pid)));
+                end
             end
         end
     end

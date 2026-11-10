@@ -133,6 +133,31 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             this.verifyError(@() mlphibroker.Crosswalk.validate(xw), 'mlphibroker:crosswalk');   % unknown range refused
             mlphibroker.Crosswalk.validate(xw, '^sub-ABC\d{3}$');   % unless a project pattern says so
         end
+        function test_two_studies_in_one_session_get_run_numbers(this)
+            % Subject B's two studies declared as ONE visit: outputs run-01/run-02, one session report.
+            tmp = fullfile(this.outRoot, 'two_studies_PHI.csv');
+            t = mlphibroker.Crosswalk.template(this.root, tmp);
+            isB = strcmp(t.PatientID, 'SYN000002');
+            t.Subject(isB) = {'sub-900202'}; t.Session(isB) = {'ses-01'};
+            t.Subject(~isB) = {'sub-900201'}; t.Session(~isB) = {'ses-01'};
+            writetable(t, tmp);
+            out2 = fullfile(this.outRoot, 'two_studies_out');
+            exe = getenv('MLPHIBROKER_DCM2NIIX');
+            r = mlphibroker.SafeHarbor.run(this.root, out2, struct('Crosswalk', tmp, 'Dcm2niixExe', exe, 'SyntheticTest', true));
+            this.verifyEqual(r.subjects, 2); this.verifyEqual(r.sessions, 2); this.verifyEqual(r.studies, 3);
+            this.verifyEqual(r.refused, 0, strjoin(r.refusals, ' | '));
+            d = fullfile(out2, 'sub-900202', 'ses-01');
+            names = {dir(fullfile(d, '*.nii.gz')).name};
+            this.verifyTrue(any(strcmp(names, 'sub-900202_ses-01_trc-fdg_run-01_proc-shdeid_pet.nii.gz')), strjoin(names, ','));
+            this.verifyTrue(any(strcmp(names, 'sub-900202_ses-01_trc-fdg_run-02_proc-shdeid_pet.nii.gz')));
+            this.verifyTrue(any(strcmp(names, 'sub-900202_ses-01_run-01_proc-shdeid_ct.nii.gz')));
+            this.verifyEqual(numel(dir(fullfile(d, '*_shdeid_report.json'))), 1);
+            sr = jsondecode(fileread(fullfile(d, 'sub-900202_ses-01_shdeid_report.json')));
+            this.verifyEqual(sr.studies, 2); this.verifyEqual(sr.written.pet, 2); this.verifyEqual(sr.written.ct, 2);
+            % the single-study session keeps plain names
+            n1 = {dir(fullfile(out2, 'sub-900201', 'ses-01', '*.nii.gz')).name};
+            this.verifyTrue(any(strcmp(n1, 'sub-900201_ses-01_trc-fdg_proc-shdeid_pet.nii.gz')), strjoin(n1, ','));
+        end
         function test_crosswalk_minted_and_private(this)
             xw = readtable(fullfile(this.outRoot, 'crosswalk_PHI.csv'), 'TextType', 'char');
             this.verifyEqual(height(xw), 3);
