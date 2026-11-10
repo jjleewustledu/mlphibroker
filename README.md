@@ -62,6 +62,13 @@ mlphibroker.SidecarPolicy.denyListTemplate(root, 'D:\MIM\MASH\deny_names_PHI.txt
     {'Coordinator Lastname', 'Investigator Lastname'})
 ```
 
+To see what the headers actually hold before deciding on extra names (PHI-side console only):
+
+```matlab
+mlphibroker.DicomTree.inspectNames(root)                 % PET, CT and RTSTRUCT: person-name and free-text fields, ROI names and interpreters
+mlphibroker.DicomTree.inspectNames(root, {'rtstruct'})
+```
+
 Review the file (one entry per line; entries under three characters are ignored; matching is
 case-insensitive on whole words). Person-name fields are split into words; ids, institution and
 station are whole strings. A hit in an output name or sidecar quarantines that pair. To see, on

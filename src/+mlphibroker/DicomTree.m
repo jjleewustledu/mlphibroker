@@ -137,6 +137,83 @@ classdef DicomTree
         end
     end
 
+    methods (Static)
+        function inspectNames(root, kinds)
+            %INSPECTNAMES  PHI-SIDE CONSOLE ONLY: print every name-bearing or free-text header field of
+            %   one series per kind, so the operator can decide what the deny list must contain.
+            %   mlphibroker.DicomTree.inspectNames(root)            PET (dynamic, static), CT, RTSTRUCT
+            %   mlphibroker.DicomTree.inspectNames(root, {'rtstruct'})
+            %   Prints: every field whose value is a DICOM Person Name (any tag), the usual free-text
+            %   fields, and for an RTSTRUCT the structure-set labels, ROI names and ROI interpreters.
+            %   The output shows values: never paste it outside the PHI zone.
+            if nargin < 2 || isempty(kinds), kinds = {'pet_dynamic', 'pet_static', 'ct', 'rtstruct'}; end
+            tree = mlphibroker.DicomTree(root);
+            free = {'StudyDescription', 'SeriesDescription', 'ProtocolName', 'ImageComments', ...
+                'RequestedProcedureDescription', 'PerformedProcedureStepDescription', 'InstitutionName', ...
+                'InstitutionalDepartmentName', 'InstitutionAddress', 'StationName', 'DeviceSerialNumber', ...
+                'PatientID', 'OtherPatientIDs', 'AccessionNumber', 'StudyID', 'PatientComments', ...
+                'AdditionalPatientHistory', 'PatientBirthDate', 'PatientAge', 'PatientSex', ...
+                'StructureSetLabel', 'StructureSetName', 'StructureSetDescription'};
+            for kind = cellstr(kinds)
+                rows = tree.Series(strcmp(tree.Series.Kind, kind{1}), :);
+                if isempty(rows), fprintf('\n== %s: none in tree\n', kind{1}); continue; end
+                for r = 1:height(rows)
+                    h = rows.FirstHeader{r};
+                    fprintf('\n== %s  ser-%g  (%d files)\n', kind{1}, rows.SeriesNumber(r), numel(rows.Files{r}));
+                    f = fieldnames(h);
+                    for i = 1:numel(f)
+                        v = h.(f{i});
+                        if isstruct(v) && isfield(v, 'FamilyName')
+                            fprintf('  PN  %-34s %s\n', f{i}, mlphibroker.DicomTree.pnText(v));
+                        end
+                    end
+                    for k = free
+                        if isfield(h, k{1}) && ~isempty(h.(k{1}))
+                            fprintf('  TXT %-34s %s\n', k{1}, mlphibroker.DicomTree.anyText(h.(k{1})));
+                        end
+                    end
+                    if strcmp(kind{1}, 'rtstruct')
+                        if isfield(h, 'StructureSetROISequence')
+                            q = h.StructureSetROISequence;
+                            for n = fieldnames(q)'
+                                it = q.(n{1});
+                                fprintf('  ROI %-34s %s\n', 'ROIName', mlphibroker.DicomTree.anyText(mlphibroker.DicomTree.field(it, 'ROIName', '')));
+                            end
+                        end
+                        if isfield(h, 'RTROIObservationsSequence')
+                            q = h.RTROIObservationsSequence;
+                            for n = fieldnames(q)'
+                                it = q.(n{1});
+                                for k = {'ROIInterpreter', 'ROIObservationLabel', 'ROIObservationDescription'}
+                                    v = mlphibroker.DicomTree.field(it, k{1}, '');
+                                    if ~isempty(v), fprintf('  ROI %-34s %s\n', k{1}, mlphibroker.DicomTree.anyText(v)); end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        function t = pnText(v)
+            % Person Name struct -> 'Family^Given^Middle^Prefix^Suffix' with empty parts dropped.
+            parts = {};
+            for k = {'FamilyName', 'GivenName', 'MiddleName', 'NamePrefix', 'NameSuffix'}
+                if isfield(v, k{1}) && ~isempty(v.(k{1})), parts{end+1} = char(string(v.(k{1}))); end %#ok<AGROW>
+            end
+            if isempty(parts), t = '(empty)'; else, t = strjoin(parts, '^'); end
+        end
+
+        function t = anyText(v)
+            % Any header value -> one printable line (PN structs, numbers, arrays, cellstr).
+            if isstruct(v) && isfield(v, 'FamilyName'), t = mlphibroker.DicomTree.pnText(v);
+            elseif isstruct(v), t = sprintf('<struct with %d fields>', numel(fieldnames(v)));
+            elseif iscell(v), t = strjoin(cellfun(@(x) mlphibroker.DicomTree.anyText(x), v, 'UniformOutput', false), ' | ');
+            elseif isnumeric(v) || islogical(v), t = mat2str(double(v(:))', 6);
+            else, t = char(string(v)); end
+        end
+    end
+
     methods (Static, Access = private)
         function row = describe(files)
             files = cellstr(files);

@@ -234,6 +234,15 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             this.verifyTrue(p.scan('report by Dr Nobody').any);
             this.verifyFalse(p.scan('sub-900001_ses-01_trc-fdg_proc-shdeid_pet').any);
         end
+        function test_inspect_names_prints_without_error(this)
+            out = evalc("mlphibroker.DicomTree.inspectNames(this.root)");
+            this.verifyTrue(contains(out, 'PN  PatientName'));
+            this.verifyTrue(contains(out, 'Synthetic^Alpha') || contains(out, 'Synthetic^Beta'));
+            this.verifyTrue(contains(out, 'ROIName') && contains(out, 'LeftCaudate'));
+            this.verifyTrue(contains(out, 'ROIInterpreter'));
+            this.verifyTrue(contains(out, '== rtstruct'));
+            this.verifyEqual(mlphibroker.DicomTree.pnText(struct('FamilyName', '', 'GivenName', '')), '(empty)');
+        end
         function test_crosswalk_minted_and_private(this)
             xw = readtable(fullfile(this.outRoot, 'crosswalk_PHI.csv'), 'TextType', 'char');
             this.verifyEqual(height(xw), 3);
