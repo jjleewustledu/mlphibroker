@@ -113,13 +113,18 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
         end
         function test_crosswalk_template_then_load(this)
             tmp = fullfile(this.outRoot, 'template_PHI.csv');
-            t = mlphibroker.Crosswalk.template(this.root, tmp);
+            t = mlphibroker.Crosswalk.template(this.root, tmp);                 % no prefix: Subject left for the operator
             this.verifyEqual(height(t), 3); this.verifyEqual(numel(unique(t.PatientID)), 2);
             this.verifyTrue(all(cellfun(@isempty, t.Subject)));
+            this.verifyTrue(all(~cellfun(@isempty, t.Session)));                   % sessions are always proposed
             this.verifyTrue(any(contains(t.Modalities, 'RTSTRUCT')));
+            this.verifyTrue(isfile([tmp '.README.txt']));
             this.verifyError(@() mlphibroker.Crosswalk.load(tmp), 'mlphibroker:crosswalk');  % blanks refused
-            t.Subject = {'sub-900101'; 'sub-900102'; 'sub-900102'}; t.Session = {'ses-01'; 'ses-02'; 'ses-01'};
-            writetable(t, tmp);
+            t = mlphibroker.Crosswalk.template(this.root, tmp, struct('SubjectPrefix', 'sub-900', 'Seed', 3));
+            this.verifyEqual(sort(unique(t.Subject))', {'sub-900001', 'sub-900002'});   % one code per person
+            b = strcmp(t.PatientID, 'SYN000002');
+            this.verifyEqual(sort(t.Session(b))', {'ses-01', 'ses-02'});                % two visit days, two ordinals
+            this.verifyTrue(all(contains(t.Note(b), 'assigned at random')));
             xw = mlphibroker.Crosswalk.load(tmp);
             this.verifyEqual(xw.Properties.VariableNames, {'PatientID', 'Subject', 'StudyInstanceUID', 'Session'});
             mlphibroker.Crosswalk.validate(xw);

@@ -28,15 +28,22 @@ classdef Crosswalk
             xw = xw(ismember(xw.StudyInstanceUID, studies.StudyInstanceUID), :);
         end
 
-        function t = template(root, outPath)
-            %TEMPLATE  Inventory a DICOM tree and write a PHI-side crosswalk template to fill in.
-            %   t = mlphibroker.Crosswalk.template(root, outPath) writes one row per study with
-            %   PatientID, PatientName, StudyDate, StudyDescription, StudyInstanceUID, Modalities,
-            %   and EMPTY Subject and Session columns. The operator fills Subject (sub-108xxx, or
-            %   sub-9xxxxx for synthetic data) and Session (ses-NN, a RANDOM ordinal per subject,
-            %   never derived from the date), then passes the file as opts.Crosswalk.
-            %   The template holds PHI (names, ids, dates): it stays in the PHI zone. Name it
-            %   *_PHI.csv so the repository's .gitignore excludes it.
+        function t = template(root, outPath, opts)
+            %TEMPLATE  Inventory a DICOM tree and write a PHI-side crosswalk with PROPOSED codes to authorize.
+            %   t = mlphibroker.Crosswalk.template(root, outPath, opts) writes one row per study:
+            %     PatientID, PatientName, StudyDate, StudyDescription, Modalities, StudyInstanceUID
+            %       (read from the DICOM headers; PHI, for your eyes only)
+            %     Subject   proposed: opts.SubjectPrefix + 3-digit number in first-appearance order, one
+            %               per PERSON, where a person is one PatientName even under several PatientIDs
+            %               (MIM exports often split them). Empty if opts.SubjectPrefix is not given.
+            %     Session   proposed: ses-NN. Studies of one person on one StudyDate are ONE visit and
+            %               share a Session; distinct days get a RANDOM ordinal (SPEC-PHIBROKER §4.2), so
+            %               ses-01 is not necessarily the earliest visit. Seed: opts.Seed (default 0).
+            %     Note      why each value was proposed. Edit Subject/Session if you disagree; everything
+            %               else is read-only context. load() keeps only the four crosswalk columns.
+            %   A companion <outPath>.README.txt repeats this. The CSV holds PHI: keep it in the PHI zone
+            %   and name it *_PHI.csv so the repository's .gitignore excludes it.
+            if nargin < 3 || ~isstruct(opts), opts = struct(); end
             tree = mlphibroker.DicomTree(root);
             S = tree.Series;
             [~, first] = unique(S.StudyInstanceUID, 'stable');
@@ -53,20 +60,80 @@ classdef Crosswalk
                 rows = S(strcmp(S.StudyInstanceUID, StudyInstanceUID{i}), :);
                 Modalities{i} = strjoin(unique(rows.Modality)', '+');
             end
-            Subject = repmat({''}, n, 1); Session = repmat({''}, n, 1);
+            % Person key: the name when present (ids may differ per export), else the id.
+            person = cellfun(@(nm, id) lower(strtrim(iff(~isempty(nm), nm, id))), PatientName, PatientID, 'UniformOutput', false);
+            [persons, ~, pidx] = unique(person, 'stable');
+            Subject = repmat({''}, n, 1); Session = repmat({''}, n, 1); Note = repmat({''}, n, 1);
+            prefix = ''; if isfield(opts, 'SubjectPrefix'), prefix = char(opts.SubjectPrefix); end
+            seed = 0; if isfield(opts, 'Seed'), seed = opts.Seed; end
+            rs = RandStream('mt19937ar', 'Seed', seed);
+            for k = 1:numel(persons)
+                rowsK = find(pidx == k);
+                ids = unique(PatientID(rowsK));
+                days = unique(StudyDate(rowsK), 'stable');
+                perm = randperm(rs, numel(days));
+                for r = rowsK'
+                    note = {};
+                    if ~isempty(prefix)
+                        Subject{r} = sprintf('%s%03d', prefix, k);
+                        note{end+1} = sprintf('person %d of %d by PatientName', k, numel(persons)); %#ok<AGROW>
+                    else
+                        note{end+1} = 'Subject: give opts.SubjectPrefix (e.g. sub-ECL1i) to propose codes'; %#ok<AGROW>
+                    end
+                    if numel(ids) > 1
+                        note{end+1} = sprintf('%d PatientIDs share this name: same Subject proposed', numel(ids)); %#ok<AGROW>
+                    end
+                    d = find(strcmp(days, StudyDate{r}), 1);
+                    Session{r} = sprintf('ses-%02d', perm(d));
+                    sameDay = sum(strcmp(StudyDate(rowsK), StudyDate{r}));
+                    if sameDay > 1
+                        note{end+1} = sprintf('%d studies on one day = one visit: same Session (outputs run-01, run-02 by acquisition order)', sameDay); %#ok<AGROW>
+                    end
+                    if numel(days) > 1
+                        note{end+1} = sprintf('%d visit days: Session ordinals assigned at random, not by date', numel(days)); %#ok<AGROW>
+                    end
+                    Note{r} = strjoin(note, '; ');
+                end
+            end
             t = table(PatientID, PatientName, StudyDate, StudyDescription, Modalities, ...
-                StudyInstanceUID, Subject, Session);
+                StudyInstanceUID, Subject, Session, Note);
             t = sortrows(t, {'PatientName', 'StudyDate'});
             writetable(t, outPath);
-            [~, ~, gi] = unique(t.PatientName);
-            split = 0;
-            for g = 1:max(gi), if numel(unique(t.PatientID(gi == g))) > 1, split = split + 1; end, end
-            if split > 0
-                fprintf(['note: %d patient name(s) carry more than one PatientID; if they are one person, ' ...
-                    'give those rows the same Subject. Studies of one visit (e.g. dynamic + delayed) take the same Session.\n'], split);
+            mlphibroker.Crosswalk.writeTemplateReadme([outPath '.README.txt'], prefix, seed);
+            fprintf('crosswalk template: %d studies, %d persons (%d PatientIDs) -> %s (PHI; authorize or edit Subject and Session; see %s)\n', ...
+                n, numel(persons), numel(unique(PatientID)), outPath, [outPath '.README.txt']);
+
+            function v = iff(c, a, b)
+                if c, v = a; else, v = b; end
             end
-            fprintf('crosswalk template: %d studies, %d patients -> %s (PHI; fill Subject and Session)\n', ...
-                n, numel(unique(PatientID)), outPath);
+        end
+
+        function writeTemplateReadme(path, prefix, seed)
+            lines = {
+                'mlphibroker crosswalk template: how to complete it'
+                ''
+                'This CSV holds PHI (names, ids, dates). Keep it in the PHI zone; never commit or share it.'
+                'Only the columns PatientID, Subject, StudyInstanceUID, Session are used by the conversion.'
+                ''
+                'Columns read from the DICOM headers (context, do not edit):'
+                '  PatientID, PatientName, StudyDate, StudyDescription, Modalities, StudyInstanceUID'
+                ''
+                'Columns to AUTHORIZE (proposed values are filled in; edit only if you disagree):'
+                sprintf('  Subject   one code per person, numbered in first-appearance order with prefix "%s".', prefix)
+                '            A person is one PatientName, even when the export used several PatientIDs.'
+                '            Allowed shapes: sub-108xxx (CCIR_01211), sub-ECL1i001-style (MASH), sub-9xxxxx (synthetic);'
+                '            labels are alphanumeric (sub-ECL1i-001 is refused).'
+                '  Session   ses-NN per visit. Studies of one person on one StudyDate are ONE visit and share'
+                '            a Session (their outputs get run-01, run-02 ... by acquisition order).'
+                sprintf('            Distinct days get RANDOM ordinals (seed %d), so ses-01 is not necessarily the earliest visit;', seed)
+                '            this is deliberate (SPEC-PHIBROKER section 4.2): the ordinal must not encode chronology.'
+                '  Note      explains each proposal; not read by the conversion.'
+                ''
+                'Refused at load time: an empty Subject or Session; a hyphen inside a subject label; a Subject'
+                'outside the allowed shapes (opts.SubjectPattern admits another project); a StudyInstanceUID'
+                'listed twice; a study present in the DICOM tree but absent from this file.'
+                };
+            fid = fopen(path, 'w'); fprintf(fid, '%s\n', lines{:}); fclose(fid);
         end
 
         function xw = load(path)

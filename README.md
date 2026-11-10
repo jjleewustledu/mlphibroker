@@ -20,10 +20,11 @@ addpath('C:\path\to\mlphibroker\src')
 root    = 'D:\phi\exports\test_case';      % the PHI DICOM tree: any depth, mixed folders, many subjects
 outRoot = 'D:\phi\safeharbor\test_case';   % PHI-side until the investigators have reviewed it
 
-% 1. Inventory the tree and write a crosswalk template (PHI: keep it in the PHI zone).
-mlphibroker.Crosswalk.template(root, 'D:\phi\crosswalk_PHI.csv')
-%    Fill Subject (sub-108xxx from the key vault) and Session (ses-NN, a RANDOM ordinal per
-%    subject, never derived from the date) for every row, then:
+% 1. Inventory the tree and write a crosswalk with PROPOSED codes (PHI: keep it in the PHI zone).
+mlphibroker.Crosswalk.template(root, 'D:\phi\crosswalk_PHI.csv', struct('SubjectPrefix', 'sub-ECL1i'))
+%    Open the CSV and its .README.txt: Subject (one per person, by PatientName) and Session
+%    (one per visit day, random ordinal) are filled in; a Note column says why. Authorize by
+%    leaving them, or edit. For CCIR_01211 replace the proposals with the key-vault sub-108xxx codes.
 
 % 2. Convert.
 opts = struct( ...
