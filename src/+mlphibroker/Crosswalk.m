@@ -67,6 +67,7 @@ classdef Crosswalk
             prefix = ''; if isfield(opts, 'SubjectPrefix'), prefix = char(opts.SubjectPrefix); end
             seed = 0; if isfield(opts, 'Seed'), seed = opts.Seed; end
             rs = RandStream('mt19937ar', 'Seed', seed);
+            roster = table(); if isfield(opts, 'Roster') && ~isempty(opts.Roster), roster = mlphibroker.Crosswalk.loadRoster(opts.Roster); end
             for k = 1:numel(persons)
                 rowsK = find(pidx == k);
                 ids = unique(PatientID(rowsK));
@@ -74,11 +75,20 @@ classdef Crosswalk
                 perm = randperm(rs, numel(days));
                 for r = rowsK'
                     note = {};
-                    if ~isempty(prefix)
+                    code = '';
+                    if ~isempty(roster)
+                        code = mlphibroker.Crosswalk.rosterCode(roster, PatientID{r}, PatientName{r});
+                    end
+                    if ~isempty(code)
+                        Subject{r} = code;
+                        note{end+1} = 'Subject from the coordinator roster (authoritative)'; %#ok<AGROW>
+                    elseif ~isempty(roster)
+                        note{end+1} = 'NOT IN ROSTER: ask the study coordinator for this person''s code; left empty'; %#ok<AGROW>
+                    elseif ~isempty(prefix)
                         Subject{r} = sprintf('%s%03d', prefix, k);
-                        note{end+1} = sprintf('person %d of %d by PatientName', k, numel(persons)); %#ok<AGROW>
+                        note{end+1} = sprintf('PLACEHOLDER %d of %d by first appearance in this export; replace with the coordinator''s code', k, numel(persons)); %#ok<AGROW>
                     else
-                        note{end+1} = 'Subject: give opts.SubjectPrefix (e.g. sub-ECL1i) to propose codes'; %#ok<AGROW>
+                        note{end+1} = 'Subject: give opts.Roster (coordinator codes) or opts.SubjectPrefix (placeholders)'; %#ok<AGROW>
                     end
                     if numel(ids) > 1
                         note{end+1} = sprintf('%d PatientIDs share this name: same Subject proposed', numel(ids)); %#ok<AGROW>
@@ -108,6 +118,34 @@ classdef Crosswalk
             end
         end
 
+        function roster = loadRoster(path)
+            %LOADROSTER  Coordinator roster: columns Subject and PatientID and/or PatientName (PHI-side).
+            if ~isfile(path), error('mlphibroker:roster', 'roster file not found'); end
+            roster = readtable(path, 'TextType', 'char', 'Delimiter', ',');
+            if ~ismember('Subject', roster.Properties.VariableNames) || ...
+                    ~any(ismember({'PatientID', 'PatientName'}, roster.Properties.VariableNames))
+                error('mlphibroker:roster', 'roster needs a Subject column and a PatientID and/or PatientName column');
+            end
+            for f = intersect({'Subject', 'PatientID', 'PatientName'}, roster.Properties.VariableNames)
+                roster.(f{1}) = cellstr(string(roster.(f{1})));
+            end
+        end
+
+        function code = rosterCode(roster, pid, pname)
+            % Match by PatientID first, then by case-insensitive PatientName (DICOM caret form or spaces).
+            code = '';
+            hit = false(height(roster), 1);
+            if ismember('PatientID', roster.Properties.VariableNames) && ~isempty(pid)
+                hit = strcmp(strtrim(roster.PatientID), strtrim(pid));
+            end
+            if ~any(hit) && ismember('PatientName', roster.Properties.VariableNames) && ~isempty(pname)
+                norm = @(x) lower(regexprep(strtrim(x), '[\s\^,]+', '^'));
+                hit = strcmp(cellfun(norm, roster.PatientName, 'UniformOutput', false), norm(pname));
+            end
+            codes = unique(roster.Subject(hit));
+            if numel(codes) == 1, code = codes{1}; end
+        end
+
         function writeTemplateReadme(path, prefix, seed)
             lines = {
                 'mlphibroker crosswalk template: how to complete it'
@@ -119,7 +157,12 @@ classdef Crosswalk
                 '  PatientID, PatientName, StudyDate, StudyDescription, Modalities, StudyInstanceUID'
                 ''
                 'Columns to AUTHORIZE (proposed values are filled in; edit only if you disagree):'
-                sprintf('  Subject   one code per person, numbered in first-appearance order with prefix "%s".', prefix)
+                '  Subject   the study coordinator''s code for the person. With opts.Roster (a CSV of Subject and'
+                '            PatientID and/or PatientName kept in the PHI zone) it is filled from the roster and is'
+                '            authoritative; a person missing from the roster is left EMPTY and must be asked for.'
+                sprintf('            Without a roster, opts.SubjectPrefix ("%s") fills PLACEHOLDERS numbered by first', prefix)
+                '            appearance in this export; such numbers do NOT match the coordinator''s (contacts that'
+                '            never enrolled leave gaps), so replace them before converting anything you will keep.'
                 '            A person is one PatientName, even when the export used several PatientIDs.'
                 '            Allowed shapes: sub-108xxx (CCIR_01211), sub-ECL1i001-style (MASH), sub-9xxxxx (synthetic);'
                 '            labels are alphanumeric (sub-ECL1i-001 is refused).'

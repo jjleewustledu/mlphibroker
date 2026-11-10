@@ -125,6 +125,19 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             b = strcmp(t.PatientID, 'SYN000002');
             this.verifyEqual(sort(t.Session(b))', {'ses-01', 'ses-02'});                % two visit days, two ordinals
             this.verifyTrue(all(contains(t.Note(b), 'assigned at random')));
+            this.verifyTrue(all(contains(t.Note, 'PLACEHOLDER')));
+            % coordinator roster: codes come from it (with gaps), a person missing from it stays empty
+            rosterPath = fullfile(this.outRoot, 'roster_PHI.csv');
+            writetable(table({'SYN000002'}, {'sub-900005'}, 'VariableNames', {'PatientID', 'Subject'}), rosterPath);
+            t = mlphibroker.Crosswalk.template(this.root, tmp, struct('Roster', rosterPath, 'SubjectPrefix', 'sub-900'));
+            this.verifyEqual(unique(t.Subject(strcmp(t.PatientID, 'SYN000002'))), {'sub-900005'});
+            this.verifyTrue(all(cellfun(@isempty, t.Subject(~strcmp(t.PatientID, 'SYN000002')))));
+            this.verifyTrue(any(contains(t.Note, 'NOT IN ROSTER')));
+            this.verifyError(@() mlphibroker.Crosswalk.load(tmp), 'mlphibroker:crosswalk');  % the empty one is refused
+            % by name, caret or spaces, case-insensitive
+            writetable(table({'synthetic alpha'; 'Synthetic^Beta'}, {'sub-900011'; 'sub-900005'}, 'VariableNames', {'PatientName', 'Subject'}), rosterPath);
+            t = mlphibroker.Crosswalk.template(this.root, tmp, struct('Roster', rosterPath));
+            this.verifyEqual(sort(unique(t.Subject))', {'sub-900005', 'sub-900011'});
             xw = mlphibroker.Crosswalk.load(tmp);
             this.verifyEqual(xw.Properties.VariableNames, {'PatientID', 'Subject', 'StudyInstanceUID', 'Session'});
             mlphibroker.Crosswalk.validate(xw);

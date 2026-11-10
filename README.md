@@ -21,10 +21,14 @@ root    = 'D:\phi\exports\test_case';      % the PHI DICOM tree: any depth, mixe
 outRoot = 'D:\phi\safeharbor\test_case';   % PHI-side until the investigators have reviewed it
 
 % 1. Inventory the tree and write a crosswalk with PROPOSED codes (PHI: keep it in the PHI zone).
-mlphibroker.Crosswalk.template(root, 'D:\phi\crosswalk_PHI.csv', struct('SubjectPrefix', 'sub-ECL1i'))
-%    Open the CSV and its .README.txt: Subject (one per person, by PatientName) and Session
-%    (one per visit day, random ordinal) are filled in; a Note column says why. Authorize by
-%    leaving them, or edit. For CCIR_01211 replace the proposals with the key-vault sub-108xxx codes.
+%    Subject codes belong to the study coordinator (assigned at first contact; contacts that never
+%    enrolled leave gaps), so give the coordinator's roster: a CSV with Subject and PatientID and/or
+%    PatientName, kept in the PHI zone.
+mlphibroker.Crosswalk.template(root, 'D:\phi\crosswalk_PHI.csv', struct('Roster', 'D:\phi\roster_PHI.csv'))
+%    Subject is filled from the roster (a person missing from it is left empty and must be asked
+%    for); Session (one per visit day, random ordinal) is proposed; a Note column says why. Authorize
+%    by leaving the values, or edit. Without a roster, struct('SubjectPrefix', 'sub-ECL1i') fills
+%    PLACEHOLDERS numbered by first appearance, which do not match the coordinator's codes.
 
 % 2. Convert.
 opts = struct( ...
