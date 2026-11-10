@@ -40,8 +40,13 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             this.verifyEqual(r.series_by_kind.pet_dynamic, 3); this.verifyEqual(r.series_by_kind.pet_static, 1);
             this.verifyEqual(r.series_by_kind.ct, 3); this.verifyEqual(r.series_by_kind.rtstruct, 1);
             this.verifyEqual(r.written.pet, 4); this.verifyEqual(r.written.ct, 3); this.verifyEqual(r.written.roi, 2);
-            this.verifyEqual(numel(r.series), 3 + 1 + 3 + 1, strjoin(r.series, ' | '));   % every series has an outcome line
-            this.verifyTrue(all(contains(r.series, {'written', 'ROI masks'})), strjoin(r.series, ' | '));
+            this.verifyEqual(r.series_by_kind.secondary, 1);                       % the dose-report capture
+            this.verifyEqual(r.unhandled_series, 1);
+            this.verifyEqual(numel(r.series), 3 + 1 + 3 + 1 + 1, strjoin(r.series, ' | '));   % every series has an outcome line
+            this.verifyTrue(any(contains(r.series, 'burned into the pixels')), strjoin(r.series, ' | '));
+            this.verifyTrue(all(contains(r.series, {'written', 'ROI masks', 'not converted'})), strjoin(r.series, ' | '));
+            names = {dir(fullfile(this.outRoot, '**', '*.nii.gz')).name};
+            this.verifyFalse(any(contains(names, 'ser-502')) || numel(names) ~= 4 + 3 + 2, strjoin(names, ','));
             this.verifyEqual(r.refused, 0, strjoin(r.refusals, ' | '));
             this.verifyEqual(r.quarantined, 0);
             % Every dcm2niix release writes AcquisitionTime; newer ones also write TimeZero,
@@ -221,6 +226,8 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             this.verifyTrue(all(ismember({'Synthetic', 'Alpha', 'Beta', 'Nobody', 'Synthetic Institute', ...
                 'SYNSTATION1', 'SN123456789', 'SYN000001', 'Coordinator Person'}, names)), strjoin(names, ','));
             this.verifyFalse(any(strcmpi(names, 'brain')));   % boilerplate words are not deny entries
+            % ids and institution are whole strings only: no 'SYN' or 'Institute' word tokens
+            this.verifyFalse(any(strcmp(names, 'SYN')) || any(strcmp(names, 'Institute')), strjoin(names, ','));
             deny = mlphibroker.SidecarPolicy.readDenyList(dp);
             this.verifyEqual(numel(deny), numel(names));
             p = mlphibroker.SidecarPolicy(deny);

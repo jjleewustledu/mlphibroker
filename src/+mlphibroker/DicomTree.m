@@ -85,7 +85,7 @@ classdef DicomTree
 
         function c = countByKind(this)
             c = struct();
-            kinds = {'pet_dynamic', 'pet_static', 'ct', 'rtstruct', 'seg', 'other'};
+            kinds = {'pet_dynamic', 'pet_static', 'ct', 'rtstruct', 'seg', 'secondary', 'localizer', 'other'};
             for i = 1:numel(kinds)
                 c.(kinds{i}) = sum(strcmp(this.Series.Kind, kinds{i}));
             end
@@ -125,7 +125,7 @@ classdef DicomTree
 
         function c = countUnhandledByModality(this)
             c = struct();
-            rows = this.Series(strcmp(this.Series.Kind, 'other'), :);
+            rows = this.Series(ismember(this.Series.Kind, {'other', 'secondary', 'localizer'}), :);
             for m = unique(rows.Modality)'
                 key = regexprep(m{1}, '[^A-Za-z0-9]', '_'); if isempty(key), key = 'blank'; end
                 c.(key) = sum(strcmp(rows.Modality, m{1}));
@@ -144,6 +144,15 @@ classdef DicomTree
             get = @(f, d) mlphibroker.DicomTree.field(h, f, d);
             modality = upper(char(get('Modality', '')));
             frames = 1;
+            sop = char(get('SOPClassUID', ''));
+            itype = get('ImageType', '');
+            if ~ischar(itype), itype = strjoin(cellfun(@char, cellstr(string(itype)), 'UniformOutput', false), '\\'); end
+            itype = upper(itype);
+            isSecondary = startsWith(sop, '1.2.840.10008.5.1.4.1.1.7') || contains(itype, 'SECONDARY') || ...
+                contains(itype, 'SCREEN') || contains(itype, 'DOSE_INFO') || contains(itype, 'MIP');
+            isLocalizer = contains(itype, 'LOCALIZER');
+            if isSecondary, modality = ['SECONDARY(' modality ')']; end
+            if isLocalizer, modality = ['LOCALIZER(' modality ')']; end
             switch modality
                 case 'PT'
                     nts = get('NumberOfTimeSlices', []);
@@ -156,7 +165,10 @@ classdef DicomTree
                 case 'CT', kind = 'ct';
                 case 'RTSTRUCT', kind = 'rtstruct';
                 case 'SEG', kind = 'seg';
-                otherwise, kind = 'other';
+                otherwise
+                    if isSecondary, kind = 'secondary';       % screen saves, dose reports, MIPs: text may be burned into pixels
+                    elseif isLocalizer, kind = 'localizer';   % topograms: annotations possible, no quantitative use
+                    else, kind = 'other'; end
             end
             row = table({char(get('PatientID', ''))}, {char(get('StudyInstanceUID', ''))}, ...
                 {char(get('SeriesInstanceUID', ''))}, {char(get('FrameOfReferenceUID', ''))}, ...

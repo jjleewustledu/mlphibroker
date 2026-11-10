@@ -23,7 +23,7 @@ classdef SidecarPolicy
             'ScatterCorrectionMethod', 'RandomsCorrectionMethod', 'ScatterFraction', ...
             'DoseCalibrationFactor', ...
             'DecayCorrection', 'DecayFactor', 'DecayCorrectionFactor', 'ImageDecayCorrected', 'ImageDecayCorrectionTime', ...
-            'Radiopharmaceutical', 'TracerName', 'RadionuclideTotalDose', 'RadionuclideHalfLife', ...
+            'Radiopharmaceutical', 'TracerName', 'TracerRadionuclide', 'RadionuclideTotalDose', 'RadionuclideHalfLife', ...
             'RadionuclidePositronFraction', 'InjectedRadioactivity', 'InjectedRadioactivityUnits', ...
             'SpecificRadioactivity', 'SpecificRadioactivityUnits', 'ModeOfAdministration', ...
             'FrameTimesStart', 'FrameDuration', 'FrameReferenceTime', 'ScanStart', 'InjectionStart', ...
@@ -113,10 +113,14 @@ classdef SidecarPolicy
             %   investigators, anyone who might appear in free text) and writes one entry per line.
             %   PHI: the file stays in the PHI zone. Review it and add names before converting.
             if nargin < 3, extra = {}; end
-            fields = {'PatientName', 'OperatorsName', 'ReferringPhysicianName', 'PerformingPhysicianName', ...
-                'PhysiciansOfRecord', 'RequestingPhysician', 'NameOfPhysiciansReadingStudy', ...
-                'InstitutionName', 'InstitutionalDepartmentName', 'StationName', 'DeviceSerialNumber', ...
+            % Person-name fields are split into words (surname and given name match on their own);
+            % identifiers, institution and station are kept as WHOLE strings only: splitting an id such
+            % as ECL1i-005 would yield 'ECL' and quarantine every protocol named after the tracer.
+            nameFields = {'PatientName', 'OperatorsName', 'ReferringPhysicianName', 'PerformingPhysicianName', ...
+                'PhysiciansOfRecord', 'RequestingPhysician', 'NameOfPhysiciansReadingStudy'};
+            wholeFields = {'InstitutionName', 'InstitutionalDepartmentName', 'StationName', 'DeviceSerialNumber', ...
                 'PatientID', 'AccessionNumber', 'StudyID'};
+            fields = [nameFields, wholeFields];
             tree = mlphibroker.DicomTree(root);
             names = {};
             for i = 1:height(tree.Series)
@@ -132,8 +136,10 @@ classdef SidecarPolicy
                     end
                     txt = strtrim(txt);
                     if numel(txt) >= 3, names{end+1} = txt; end %#ok<AGROW>
-                    words = regexp(txt, '[A-Za-z][A-Za-z''-]{2,}', 'match');
-                    names = [names, words]; %#ok<AGROW>
+                    if ismember(f{1}, nameFields)
+                        words = regexp(txt, '[A-Za-z][A-Za-z''-]{2,}', 'match');
+                        names = [names, words]; %#ok<AGROW>
+                    end
                 end
             end
             names = [names, cellstr(extra)];
@@ -144,6 +150,35 @@ classdef SidecarPolicy
             names = names(~ismember(lower(names), stop));
             fid = fopen(outPath, 'w'); fprintf(fid, '%s\n', names{:}); fclose(fid);
             fprintf('deny list template: %d entries -> %s (PHI; review, add coordinator/investigator names)\n', numel(names), outPath);
+        end
+
+        function explainQuarantine(outRoot, denyListFile)
+            %EXPLAINQUARANTINE  PHI-SIDE CONSOLE ONLY: for every quarantined sidecar under outRoot, print
+            %   the key, the shape kind and the deny-list entry or matched text that caused the hit.
+            %   Never paste this output anywhere outside the PHI zone; it shows the matched values.
+            deny = {}; if nargin > 1 && ~isempty(denyListFile), deny = mlphibroker.SidecarPolicy.readDenyList(denyListFile); end
+            p = mlphibroker.SidecarPolicy(deny);
+            files = dir(fullfile(outRoot, '**', 'quarantine', '*.json'));
+            if isempty(files), fprintf('no quarantined sidecars under %s\n', outRoot); return; end
+            shapes = struct('date', '(?<![0-9])(19|20)\d{2}-?[01]\d-?[0-3]\d(?![0-9])|(?<![0-9])[01]?\d/[0-3]?\d/(19|20)\d{2}(?![0-9])', ...
+                'clock_time', '(?<![0-9])[0-2]\d:[0-5]\d(:[0-5]\d(\.\d+)?)?(?![0-9])', 'dated_session', 'ses-\d{8,}');
+            for i = 1:numel(files)
+                fprintf('%s\n', files(i).name);
+                sc = jsondecode(fileread(fullfile(files(i).folder, files(i).name)));
+                for f = fieldnames(sc)'
+                    txt = jsonencode(sc.(f{1}));
+                    for k = fieldnames(shapes)'
+                        m = regexp(txt, shapes.(k{1}), 'match');
+                        if ~isempty(m), fprintf('   %-28s %-14s %s\n', f{1}, k{1}, strjoin(unique(m), ' ')); end
+                    end
+                    for d = deny
+                        if ~isempty(regexpi(txt, ['(?<![A-Za-z])' regexptranslate('escape', d{1}) '(?![A-Za-z])'], 'once'))
+                            fprintf('   %-28s %-14s entry "%s"\n', f{1}, 'deny_list', d{1});
+                        end
+                    end
+                end
+                h = p.scan(files(i).name); if h.any, fprintf('   %-28s file name carries a shape\n', ''); end
+            end
         end
 
         function writeJson(path, s)

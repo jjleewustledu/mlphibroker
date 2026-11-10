@@ -36,7 +36,7 @@ classdef SafeHarbor
 
     properties (Constant)
         TOOL = 'mlphibroker'
-        VERSION = '0.2.0'
+        VERSION = '0.2.1'
     end
 
     methods (Static)
@@ -111,6 +111,9 @@ classdef SafeHarbor
                                     sr.series{end+1} = sprintf('%s: %s', tag, strjoin(detail, '; '));
                                 case 'rtstruct'
                                     % handled after the images so the reference geometry exists
+                                case {'secondary', 'localizer'}
+                                    sr.unhandled = sr.unhandled + 1;
+                                    sr.series{end+1} = sprintf('%s: not converted (%s: text may be burned into the pixels; no quantitative use)', tag, char(rows.Modality(r)));
                                 otherwise
                                     sr.unhandled = sr.unhandled + 1;
                                     sr.series{end+1} = sprintf('%s: unhandled modality %s', tag, char(rows.Modality(r)));

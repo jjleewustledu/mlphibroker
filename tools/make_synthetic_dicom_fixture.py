@@ -152,6 +152,21 @@ def write_static_pet(folder, patient, study, acq, nx=16, ny=16, nz=4):
     return series_uid
 
 
+def write_secondary_capture(folder, patient, study, acq):
+    """A dose-report style secondary capture: text would be burned into the pixels; never converted."""
+    ds = base_ds(pydicom.uid.SecondaryCaptureImageStorage, patient, study, acq, generate_uid(), 502, "CT", "Patient Protocol")
+    ds.ImageType = ["DERIVED", "SECONDARY", "DOSE_INFO"]
+    ds.InstanceNumber = 1
+    ds.Rows, ds.Columns = 32, 32
+    ds.SamplesPerPixel = 1
+    ds.PhotometricInterpretation = "MONOCHROME2"
+    ds.BitsAllocated = ds.BitsStored = 8
+    ds.HighBit = 7
+    ds.PixelRepresentation = 0
+    ds.PixelData = (rng.integers(0, 255, size=(32, 32))).astype(np.uint8).tobytes()
+    ds.save_as(folder / "SC_dose_report.dcm", write_like_original=False)
+
+
 def write_ct(folder, patient, study, acq, nx=16, ny=16, nz=4):
     series_uid = generate_uid()
     for z in range(nz):
@@ -249,6 +264,7 @@ sA = (generate_uid(), generate_uid())
 acqA = datetime.datetime(2001, 2, 3, 12, 0, 11)
 pet_uid, sops = write_pet(a_dir, pA, sA, acqA)
 write_static_pet(a_dir, pA, sA, acqA + datetime.timedelta(minutes=60))
+write_secondary_capture(a_dir, pA, sA, acqA)
 write_ct(a_dir, pA, sA, acqA - datetime.timedelta(minutes=5))
 write_rtstruct(a_dir, pA, sA, acqA, pet_uid, sops)
 (a_dir / "notes.txt").write_text("stray non-DICOM file\n")

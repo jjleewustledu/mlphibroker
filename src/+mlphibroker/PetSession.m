@@ -29,6 +29,13 @@ classdef PetSession
                     kept.Radiopharmaceutical = admin.radiopharmaceutical;
                 end
                 [token, isotope, halflife_s] = TracerTable.resolve(kept, opts);
+                if isfield(kept, 'TracerRadionuclide') && ~isempty(kept.TracerRadionuclide)
+                    norm = @(x) lower(regexprep(char(string(x)), '[^A-Za-z0-9]', ''));
+                    a = norm(kept.TracerRadionuclide); b = norm(isotope);
+                    if ~(strcmp(a, b) || strcmp(a, [b(regexp(b, '[a-z]')) b(regexp(b, '\d'))]))   % 68ga vs ga68
+                        error('mlphibroker:isotope', 'dcm2niix TracerRadionuclide disagrees with the isotope selected by the half-life (%s)', isotope);
+                    end
+                end
                 if isfield(kept, 'FrameTimesStart') && isfield(kept, 'FrameDuration')
                     [times, taus, timesMid] = PetSession.frameTiming(kept); timingSource = 'dcm2niix_sidecar';
                 else

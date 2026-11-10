@@ -63,7 +63,16 @@ mlphibroker.SidecarPolicy.denyListTemplate(root, 'D:\MIM\MASH\deny_names_PHI.txt
 ```
 
 Review the file (one entry per line; entries under three characters are ignored; matching is
-case-insensitive on whole words). A hit in an output name or sidecar quarantines that pair.
+case-insensitive on whole words). Person-name fields are split into words; ids, institution and
+station are whole strings. A hit in an output name or sidecar quarantines that pair. To see, on
+the PHI side only, which key and which entry caused a quarantine:
+
+```matlab
+mlphibroker.SidecarPolicy.explainQuarantine(outRoot, 'D:\MIM\MASH\deny_names_PHI.txt')   % prints matched values: never paste outside the PHI zone
+```
+
+Secondary captures (dose reports, screen saves, MIPs) and localizers are never converted, because
+text may be burned into their pixels; the report counts them as `secondary` / `localizer`.
 
 **Step 4. Convert and review.**
 
