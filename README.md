@@ -36,6 +36,12 @@ report = mlphibroker.SafeHarbor.run(root, outRoot, opts);
 %    dropped_key_names), every quarantine/ folder, and a sample of sidecars and file names.
 ```
 
+Subject codes accepted by default: `sub-108xxx` (CCIR_01211), `sub-ECL1i001`-style (MASH, DOTA-ECL1i)
+and `sub-9xxxxx` (synthetic); `opts.SubjectPattern` (a regex) admits another project's range. Labels are
+BIDS alphanumerics, so `sub-ECL1i-001` is refused. For DOTA-ECL1i the nuclide ([68Ga] or [64Cu]) is read
+from the DICOM `RadionuclideHalfLife`, never assumed from the name; the token becomes `trc-gadotaecl1i` or
+`trc-cudotaecl1i` accordingly.
+
 Several subjects and visits in one folder are handled: every series is tagged by its own
 PatientID and StudyInstanceUID, and outputs are partitioned under `<outRoot>/<sub>/<ses>/`.
 

@@ -20,7 +20,7 @@ classdef Crosswalk
                 error('mlphibroker:crosswalk', ...
                     'opts.Crosswalk (key-vault CSV) is required, or opts.AutoCrosswalk=true for synthetic codes');
             end
-            mlphibroker.Crosswalk.validate(xw);
+            mlphibroker.Crosswalk.validate(xw, mlphibroker.Crosswalk.subjectPattern(opts));
             missing = ~ismember(studies.StudyInstanceUID, xw.StudyInstanceUID);
             if any(missing)
                 error('mlphibroker:crosswalk', '%d studies in the tree have no crosswalk row', sum(missing));
@@ -117,9 +117,26 @@ classdef Crosswalk
             end
         end
 
-        function validate(xw)
-            bad = cellfun(@(s) isempty(regexp(s, '^sub-(108\d{3}|9\d{5})$', 'once')), xw.Subject);
-            if any(bad), error('mlphibroker:crosswalk', '%d Subject codes are not sub-108xxx or sub-9xxxxx', sum(bad)); end
+        function pat = subjectPattern(opts)
+            %SUBJECTPATTERN  Accepted subject codes: CCIR_01211 sub-108xxx, synthetic sub-9xxxxx, and
+            %   the MASH (DOTA-ECL1i) range sub-ECL1i followed by three digits (operator, 2026-11-10).
+            %   opts.SubjectPattern (a regex) overrides for another project. Labels stay BIDS
+            %   alphanumerics: a hyphen inside the label (sub-ECL1i-001) breaks sub-/ses-/trc- parsing.
+            pat = '^sub-(108\d{3}|9\d{5}|ECL1i\d{3})$';
+            if nargin > 0 && isstruct(opts) && isfield(opts, 'SubjectPattern') && ~isempty(opts.SubjectPattern)
+                pat = char(opts.SubjectPattern);
+            end
+        end
+
+        function validate(xw, pat)
+            if nargin < 2 || isempty(pat), pat = mlphibroker.Crosswalk.subjectPattern(struct()); end
+            hyph = cellfun(@(s) ~isempty(regexp(s, '^sub-[A-Za-z0-9]+-', 'once')), xw.Subject);
+            if any(hyph)
+                error('mlphibroker:crosswalk', ['%d Subject codes carry a hyphen inside the label (e.g. sub-ECL1i-001); ' ...
+                    'BIDS labels are alphanumeric: use sub-ECL1i001'], sum(hyph));
+            end
+            bad = cellfun(@(s) isempty(regexp(s, pat, 'once')), xw.Subject);
+            if any(bad), error('mlphibroker:crosswalk', '%d Subject codes do not match %s', sum(bad), pat); end
             bad = cellfun(@(s) isempty(regexp(s, '^ses-\d{2}$', 'once')), xw.Session);
             if any(bad), error('mlphibroker:crosswalk', '%d Session codes are not ses-NN (dated labels are refused)', sum(bad)); end
             key = strcat(xw.Subject, '/', xw.Session);

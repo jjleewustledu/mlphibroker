@@ -24,6 +24,18 @@ classdef Test_TracerTable < matlab.unittest.TestCase
             [tok, iso] = mlphibroker.TracerTable.resolve(struct('TracerName', 'Fludeoxyglucose F18', 'RadionuclideHalfLife', 6586.2));
             this.verifyEqual(tok, 'fdg'); this.verifyEqual(iso, '18F');
         end
+        function test_dota_ecl1i_resolved_by_halflife_only(this)
+            % Same name, two nuclides: the DICOM half-life decides; a third half-life is refused.
+            [tok, iso] = mlphibroker.TracerTable.resolve(struct('TracerName', 'DOTA-ECL1i', 'RadionuclideHalfLife', 4063.1));
+            this.verifyEqual(tok, 'gadotaecl1i'); this.verifyEqual(iso, '68Ga');
+            [tok, iso] = mlphibroker.TracerTable.resolve(struct('Radiopharmaceutical', '68Ga DOTA ECL1i', 'RadionuclideHalfLife', 4063.1));
+            this.verifyEqual(tok, 'gadotaecl1i'); this.verifyEqual(iso, '68Ga');
+            [tok, iso] = mlphibroker.TracerTable.resolve(struct('Radiopharmaceutical', 'Cu64-DOTA-ECL1i', 'RadionuclideHalfLife', 45721.1));
+            this.verifyEqual(tok, 'cudotaecl1i'); this.verifyEqual(iso, '64Cu');
+            this.verifyError(@() mlphibroker.TracerTable.resolve(struct('TracerName', 'DOTA-ECL1i', 'RadionuclideHalfLife', 122.24)), 'mlphibroker:isotope');
+            % an explicit but WRONG override is refused by the half-life, never trusted
+            this.verifyError(@() mlphibroker.TracerTable.resolve(struct('TracerName', 'DOTA-ECL1i', 'RadionuclideHalfLife', 4063.1), struct('Tracer', 'cudotaecl1i')), 'mlphibroker:isotope');
+        end
         function test_halflife_disagreement_refused(this)
             this.verifyError(@() mlphibroker.TracerTable.resolve(struct('Radiopharmaceutical', 'Fludeoxyglucose F18', 'RadionuclideHalfLife', 122.24)), 'mlphibroker:isotope');
         end

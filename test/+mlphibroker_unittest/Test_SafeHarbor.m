@@ -124,6 +124,15 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             this.verifyEqual(xw.Properties.VariableNames, {'PatientID', 'Subject', 'StudyInstanceUID', 'Session'});
             mlphibroker.Crosswalk.validate(xw);
         end
+        function test_subject_code_ranges(this)
+            xw = table({'p1'}, {'sub-ECL1i001'}, {'1.2.3'}, {'ses-01'}, 'VariableNames', {'PatientID', 'Subject', 'StudyInstanceUID', 'Session'});
+            mlphibroker.Crosswalk.validate(xw);                      % MASH range accepted
+            xw.Subject = {'sub-ECL1i-001'};
+            this.verifyError(@() mlphibroker.Crosswalk.validate(xw), 'mlphibroker:crosswalk');   % hyphenated label refused
+            xw.Subject = {'sub-ABC001'};
+            this.verifyError(@() mlphibroker.Crosswalk.validate(xw), 'mlphibroker:crosswalk');   % unknown range refused
+            mlphibroker.Crosswalk.validate(xw, '^sub-ABC\d{3}$');   % unless a project pattern says so
+        end
         function test_crosswalk_minted_and_private(this)
             xw = readtable(fullfile(this.outRoot, 'crosswalk_PHI.csv'), 'TextType', 'char');
             this.verifyEqual(height(xw), 3);
