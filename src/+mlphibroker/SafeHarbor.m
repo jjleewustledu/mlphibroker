@@ -36,7 +36,7 @@ classdef SafeHarbor
 
     properties (Constant)
         TOOL = 'mlphibroker'
-        VERSION = '0.2.1'
+        VERSION = '0.2.2'
     end
 
     methods (Static)

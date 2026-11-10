@@ -29,11 +29,13 @@ classdef PetSession
                     kept.Radiopharmaceutical = admin.radiopharmaceutical;
                 end
                 [token, isotope, halflife_s] = TracerTable.resolve(kept, opts);
+                nuclideCheck = 'absent';
                 if isfield(kept, 'TracerRadionuclide') && ~isempty(kept.TracerRadionuclide)
-                    norm = @(x) lower(regexprep(char(string(x)), '[^A-Za-z0-9]', ''));
-                    a = norm(kept.TracerRadionuclide); b = norm(isotope);
-                    if ~(strcmp(a, b) || strcmp(a, [b(regexp(b, '[a-z]')) b(regexp(b, '\d'))]))   % 68ga vs ga68
-                        error('mlphibroker:isotope', 'dcm2niix TracerRadionuclide disagrees with the isotope selected by the half-life (%s)', isotope);
+                    % dcm2niix copies the DICOM radionuclide code meaning, e.g. "^68^Gallium", "Gallium-68",
+                    % "Ga-68" or "68Ga": compare mass number and element, never the raw string.
+                    [okN, nuclideCheck] = PetSession.nuclideAgrees(kept.TracerRadionuclide, isotope);
+                    if ~okN
+                        error('mlphibroker:isotope', 'dcm2niix TracerRadionuclide (%s) disagrees with the isotope selected by the half-life (%s)', nuclideCheck, isotope);
                     end
                 end
                 if isfield(kept, 'FrameTimesStart') && isfield(kept, 'FrameDuration')
@@ -43,6 +45,7 @@ classdef PetSession
                 end
                 sc = PetSession.sidecar(kept, sub, ses, token, isotope, halflife_s, times, taus, timesMid, admin);
                 sc.FrameTimingSource = timingSource;
+                sc.TracerRadionuclideCheck = nuclideCheck;   % 'agrees' | 'unparsed:<text>' | 'absent'
                 base = sprintf('%s_%s_trc-%s%s_proc-shdeid_pet', sub, ses, token, PetSession.runTag(run, k, numel(jsons)));
                 [hits, byField] = policy.scanStruct(sc, base);
                 if hits.any
@@ -147,6 +150,28 @@ classdef PetSession
                 error('mlphibroker:timing', 'frames must be positive in duration and strictly increasing');
             end
             timesMid = times + taus / 2;
+        end
+
+        function [ok, how] = nuclideAgrees(txt, isotope)
+            %NUCLIDEAGREES  Does a radionuclide string ("^68^Gallium", "Ga-68", "68Ga") name `isotope` ("68Ga")?
+            %   ok is true when the mass numbers agree and the element (symbol or English name) agrees,
+            %   and also when the string cannot be parsed (then how = 'unparsed:<text>'): the half-life
+            %   already fixed the isotope, and an unreadable code meaning is recorded, not fatal.
+            elements = { 'ga', 'gallium'; 'cu', 'copper'; 'f', 'fluorine'; 'o', 'oxygen'; 'c', 'carbon'; ...
+                'zr', 'zirconium'; 'rb', 'rubidium'; 'n', 'nitrogen'; 'i', 'iodine'; 'ge', 'germanium'; ...
+                'na', 'sodium'; 'cs', 'caesium'; 'cs', 'cesium'; 'tc', 'technetium'; 'y', 'yttrium'; 'lu', 'lutetium' };
+            t = lower(char(string(txt)));
+            massT = regexp(t, '\d+', 'match', 'once');
+            elT = regexp(t, '[a-z]+', 'match', 'once');
+            iso = lower(char(isotope));
+            massI = regexp(iso, '\d+', 'match', 'once'); symI = regexp(iso, '[a-z]+', 'match', 'once');
+            if isempty(massT) || isempty(elT)
+                ok = true; how = ['unparsed:' regexprep(char(string(txt)), '[^A-Za-z0-9^-]', '')]; return
+            end
+            r = find(strcmp(elements(:, 1), symI));
+            names = [{symI}, elements(r, 2)'];
+            ok = strcmp(massT, massI) && any(strcmp(elT, names));
+            if ok, how = 'agrees'; else, how = regexprep(char(string(txt)), '[^A-Za-z0-9^-]', ''); end
         end
 
         function s = clockSeconds(t)

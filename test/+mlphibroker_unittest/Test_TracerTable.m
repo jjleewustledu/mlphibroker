@@ -36,6 +36,19 @@ classdef Test_TracerTable < matlab.unittest.TestCase
             % an explicit but WRONG override is refused by the half-life, never trusted
             this.verifyError(@() mlphibroker.TracerTable.resolve(struct('TracerName', 'DOTA-ECL1i', 'RadionuclideHalfLife', 4063.1), struct('Tracer', 'cudotaecl1i')), 'mlphibroker:isotope');
         end
+        function test_dicom_radionuclide_code_meanings(this)
+            % dcm2niix's TracerRadionuclide carries the DICOM code meaning in several spellings.
+            for v = {'^68^Gallium', 'Gallium-68', 'Ga-68', '68Ga', 'GA68', 'gallium 68'}
+                [ok, how] = mlphibroker.PetSession.nuclideAgrees(v{1}, '68Ga');
+                this.verifyTrue(ok, v{1}); this.verifyEqual(how, 'agrees', v{1});
+            end
+            this.verifyTrue(mlphibroker.PetSession.nuclideAgrees('^18^Fluorine', '18F'));
+            this.verifyTrue(mlphibroker.PetSession.nuclideAgrees('Copper-64', '64Cu'));
+            this.verifyTrue(mlphibroker.PetSession.nuclideAgrees('^15^Oxygen', '15O'));
+            [ok, how] = mlphibroker.PetSession.nuclideAgrees('Cu-64', '68Ga'); this.verifyFalse(ok); this.verifyEqual(how, 'Cu-64');
+            [ok, ~] = mlphibroker.PetSession.nuclideAgrees('^68^Germanium', '68Ga'); this.verifyFalse(ok);   % same mass, other element
+            [ok, how] = mlphibroker.PetSession.nuclideAgrees('???', '68Ga'); this.verifyTrue(ok); this.verifyTrue(startsWith(how, 'unparsed:'));
+        end
         function test_halflife_disagreement_refused(this)
             this.verifyError(@() mlphibroker.TracerTable.resolve(struct('Radiopharmaceutical', 'Fludeoxyglucose F18', 'RadionuclideHalfLife', 122.24)), 'mlphibroker:isotope');
         end
