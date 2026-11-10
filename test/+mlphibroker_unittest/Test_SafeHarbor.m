@@ -42,8 +42,13 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             this.verifyEqual(r.written.pet, 3); this.verifyEqual(r.written.ct, 3); this.verifyEqual(r.written.roi, 2);
             this.verifyEqual(r.refused, 0, strjoin(r.refusals, ' | '));
             this.verifyEqual(r.quarantined, 0);
-            this.verifyTrue(any(strcmp(r.dropped_key_names, 'AcquisitionTime')));
-            this.verifyTrue(any(strcmp(r.dropped_key_names, 'TimeZero')));
+            % Every dcm2niix release writes AcquisitionTime; newer ones also write TimeZero,
+            % InstitutionName and serials. Assert what must hold for any release: the clock key
+            % was dropped, nothing dropped was allow-listed, and the version is recorded.
+            this.verifyTrue(any(strcmp(r.dropped_key_names, 'AcquisitionTime')), ...
+                ['dropped: ' strjoin(r.dropped_key_names, ',')]);
+            this.verifyEmpty(intersect(r.dropped_key_names, mlphibroker.SidecarPolicy.ALLOW));
+            this.verifyTrue(startsWith(r.dcm2niix_version, 'v'), r.dcm2niix_version);
         end
         function test_file_names_and_no_phi_shapes(this)
             files = dir(fullfile(this.outRoot, '**', '*.*')); files = files(~[files.isdir]);

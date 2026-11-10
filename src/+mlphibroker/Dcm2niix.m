@@ -23,6 +23,14 @@ classdef Dcm2niix
             end
         end
 
+        function v = version(this)
+            % Version string of the executable (e.g. v1.0.20250505); letters, digits and dots only.
+            [rc, out] = system(sprintf('"%s" -v', this.Exe));
+            v = regexp(out, 'v\d+\.\d+\.\d+', 'match', 'once');
+            if rc ~= 0 && isempty(v), v = 'unknown'; end
+            if isempty(v), v = 'unknown'; end
+        end
+
         function [jsons, niis, log] = convertSeries(this, files, prefix, outDir)
             files = cellstr(files);
             tmpIn = tempname(); mkdir(tmpIn);
