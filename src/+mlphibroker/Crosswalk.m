@@ -28,6 +28,40 @@ classdef Crosswalk
             xw = xw(ismember(xw.StudyInstanceUID, studies.StudyInstanceUID), :);
         end
 
+        function t = template(root, outPath)
+            %TEMPLATE  Inventory a DICOM tree and write a PHI-side crosswalk template to fill in.
+            %   t = mlphibroker.Crosswalk.template(root, outPath) writes one row per study with
+            %   PatientID, PatientName, StudyDate, StudyDescription, StudyInstanceUID, Modalities,
+            %   and EMPTY Subject and Session columns. The operator fills Subject (sub-108xxx, or
+            %   sub-9xxxxx for synthetic data) and Session (ses-NN, a RANDOM ordinal per subject,
+            %   never derived from the date), then passes the file as opts.Crosswalk.
+            %   The template holds PHI (names, ids, dates): it stays in the PHI zone. Name it
+            %   *_PHI.csv so the repository's .gitignore excludes it.
+            tree = mlphibroker.DicomTree(root);
+            S = tree.Series;
+            [~, first] = unique(S.StudyInstanceUID, 'stable');
+            n = numel(first);
+            PatientID = cell(n, 1); PatientName = cell(n, 1); StudyDate = cell(n, 1);
+            StudyDescription = cell(n, 1); StudyInstanceUID = cell(n, 1); Modalities = cell(n, 1);
+            for i = 1:n
+                h = S.FirstHeader{first(i)};
+                PatientID{i} = S.PatientID{first(i)};
+                PatientName{i} = mlphibroker.Crosswalk.nameOf(h);
+                StudyDate{i} = mlphibroker.Crosswalk.strField(h, 'StudyDate');
+                StudyDescription{i} = mlphibroker.Crosswalk.strField(h, 'StudyDescription');
+                StudyInstanceUID{i} = S.StudyInstanceUID{first(i)};
+                rows = S(strcmp(S.StudyInstanceUID, StudyInstanceUID{i}), :);
+                Modalities{i} = strjoin(unique(rows.Modality)', '+');
+            end
+            Subject = repmat({''}, n, 1); Session = repmat({''}, n, 1);
+            t = table(PatientID, PatientName, StudyDate, StudyDescription, Modalities, ...
+                StudyInstanceUID, Subject, Session);
+            t = sortrows(t, {'PatientID', 'StudyDate'});
+            writetable(t, outPath);
+            fprintf('crosswalk template: %d studies, %d patients -> %s (PHI; fill Subject and Session)\n', ...
+                n, numel(unique(PatientID)), outPath);
+        end
+
         function xw = load(path)
             if ~isfile(path), error('mlphibroker:crosswalk', 'crosswalk file not found'); end
             xw = readtable(path, 'TextType', 'char', 'Delimiter', ',');
@@ -38,6 +72,12 @@ classdef Crosswalk
                 end
                 xw.(need{i}) = cellstr(string(xw.(need{i})));
             end
+            blank = cellfun(@(s) isempty(strtrim(s)) || strcmp(s, '<missing>'), xw.Subject) | ...
+                cellfun(@(s) isempty(strtrim(s)) || strcmp(s, '<missing>'), xw.Session);
+            if any(blank)
+                error('mlphibroker:crosswalk', '%d crosswalk rows have an empty Subject or Session (fill the template first)', sum(blank));
+            end
+            xw = xw(:, need);   % extra template columns (names, dates) are never carried further
         end
 
         function xw = mint(studies, opts)
@@ -55,6 +95,26 @@ classdef Crosswalk
             end
             xw = table(studies.PatientID, Subject, studies.StudyInstanceUID, Session, ...
                 'VariableNames', {'PatientID', 'Subject', 'StudyInstanceUID', 'Session'});
+        end
+
+        function v = strField(h, f)
+            if isfield(h, f) && ~isempty(h.(f)), v = char(string(h.(f))); else, v = ''; end
+        end
+
+        function v = nameOf(h)
+            v = '';
+            if isfield(h, 'PatientName')
+                pn = h.PatientName;
+                if isstruct(pn)
+                    parts = {};
+                    for f = {'FamilyName', 'GivenName'}
+                        if isfield(pn, f{1}) && ~isempty(pn.(f{1})), parts{end+1} = char(pn.(f{1})); end %#ok<AGROW>
+                    end
+                    v = strjoin(parts, '^');
+                else
+                    v = char(string(pn));
+                end
+            end
         end
 
         function validate(xw)

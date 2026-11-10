@@ -111,6 +111,19 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             pet = dir(fullfile(m(1).folder, '*_trc-fdg_proc-shdeid_pet.nii.gz'));
             this.verifyEqual(mlphibroker.Nifti1.sform(fullfile(pet(1).folder, pet(1).name)), S);
         end
+        function test_crosswalk_template_then_load(this)
+            tmp = fullfile(this.outRoot, 'template_PHI.csv');
+            t = mlphibroker.Crosswalk.template(this.root, tmp);
+            this.verifyEqual(height(t), 3); this.verifyEqual(numel(unique(t.PatientID)), 2);
+            this.verifyTrue(all(cellfun(@isempty, t.Subject)));
+            this.verifyTrue(any(contains(t.Modalities, 'RTSTRUCT')));
+            this.verifyError(@() mlphibroker.Crosswalk.load(tmp), 'mlphibroker:crosswalk');  % blanks refused
+            t.Subject = {'sub-900101'; 'sub-900102'; 'sub-900102'}; t.Session = {'ses-01'; 'ses-02'; 'ses-01'};
+            writetable(t, tmp);
+            xw = mlphibroker.Crosswalk.load(tmp);
+            this.verifyEqual(xw.Properties.VariableNames, {'PatientID', 'Subject', 'StudyInstanceUID', 'Session'});
+            mlphibroker.Crosswalk.validate(xw);
+        end
         function test_crosswalk_minted_and_private(this)
             xw = readtable(fullfile(this.outRoot, 'crosswalk_PHI.csv'), 'TextType', 'char');
             this.verifyEqual(height(xw), 3);

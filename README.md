@@ -17,12 +17,27 @@ investigators review them.
 
 ```matlab
 addpath('C:\path\to\mlphibroker\src')
+root    = 'D:\phi\exports\test_case';      % the PHI DICOM tree: any depth, mixed folders, many subjects
+outRoot = 'D:\phi\safeharbor\test_case';   % PHI-side until the investigators have reviewed it
+
+% 1. Inventory the tree and write a crosswalk template (PHI: keep it in the PHI zone).
+mlphibroker.Crosswalk.template(root, 'D:\phi\crosswalk_PHI.csv')
+%    Fill Subject (sub-108xxx from the key vault) and Session (ses-NN, a RANDOM ordinal per
+%    subject, never derived from the date) for every row, then:
+
+% 2. Convert.
 opts = struct( ...
-    'Crosswalk',    'D:\phi\crosswalk.csv', ...        % PatientID,Subject,StudyInstanceUID,Session (key vault)
-    'Dcm2niixExe',  'C:\tools\dcm2niix\dcm2niix.exe', ...
+    'Crosswalk',    'D:\phi\crosswalk_PHI.csv', ...
+    'Dcm2niixExe',  'C:\Users\<you>\tools\dcm2niix\v1.0.20261029\dcm2niix.exe', ...   % or MLPHIBROKER_DCM2NIIX
     'DenyListFile', 'D:\phi\deny_names.txt');           % one staff/participant name per line
-report = mlphibroker.SafeHarbor.run('D:\phi\exports\test_case', 'D:\phi\safeharbor\test_case', opts);
+report = mlphibroker.SafeHarbor.run(root, outRoot, opts);
+
+% 3. Review before anything leaves the PHI zone: shdeid_batch_report.json (refused, quarantined,
+%    dropped_key_names), every quarantine/ folder, and a sample of sidecars and file names.
 ```
+
+Several subjects and visits in one folder are handled: every series is tagged by its own
+PatientID and StudyInstanceUID, and outputs are partitioned under `<outRoot>/<sub>/<ses>/`.
 
 Without a crosswalk, `opts.AutoCrosswalk = true` mints synthetic codes (`sub-9000NN`, random
 `ses-NN`) and writes `crosswalk_PHI.csv` into the output root. That file maps PatientIDs and
