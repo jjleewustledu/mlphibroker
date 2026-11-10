@@ -10,3 +10,7 @@ crosswalk*.csv
 *.mat
 *.asv
 .DS_Store
+# The fabricated synthetic DICOM fixture is the ONLY DICOM allowed in this repository. The user's
+# global ignore excludes **/*.DCM to keep real DICOMs out of git; this negation re-admits that one
+# folder, and Test_PublicSafety asserts every file in it carries a fabricated identity.
+!test/fixtures/synthetic_dicom/**

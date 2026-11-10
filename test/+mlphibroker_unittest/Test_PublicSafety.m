@@ -21,5 +21,19 @@ classdef Test_PublicSafety < matlab.unittest.TestCase
             end
             this.verifyEmpty(bad, strjoin(bad, newline));
         end
+        function test_fixture_dicoms_are_fabricated(this)
+            % Every DICOM in the committed fixture must carry a fabricated identity: this is what
+            % makes the .gitignore negation for that folder safe in a public repository.
+            root = fullfile(fileparts(mfilename('fullpath')), '..', 'fixtures', 'synthetic_dicom');
+            files = dir(fullfile(root, '**', '*.dcm'));
+            this.assertGreaterThan(numel(files), 50, 'the fixture must be present');
+            for i = 1:numel(files)
+                h = dicominfo(fullfile(files(i).folder, files(i).name), 'UseDictionaryVR', true);
+                this.verifyTrue(startsWith(char(h.PatientName.FamilyName), 'Synthetic'), files(i).name);
+                this.verifyTrue(startsWith(char(h.PatientID), 'SYN'), files(i).name);
+                this.verifyTrue(startsWith(char(h.StudyDate), '2001'), files(i).name);
+                this.verifyEqual(char(h.InstitutionName), 'Synthetic Institute', files(i).name);
+            end
+        end
     end
 end
