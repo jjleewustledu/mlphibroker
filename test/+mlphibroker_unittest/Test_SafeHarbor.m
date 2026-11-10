@@ -37,9 +37,11 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
         function test_counts(this)
             r = this.report;
             this.verifyEqual(r.subjects, 2); this.verifyEqual(r.studies, 3);
-            this.verifyEqual(r.series_by_kind.pet_dynamic, 3); this.verifyEqual(r.series_by_kind.ct, 3);
-            this.verifyEqual(r.series_by_kind.rtstruct, 1);
-            this.verifyEqual(r.written.pet, 3); this.verifyEqual(r.written.ct, 3); this.verifyEqual(r.written.roi, 2);
+            this.verifyEqual(r.series_by_kind.pet_dynamic, 3); this.verifyEqual(r.series_by_kind.pet_static, 1);
+            this.verifyEqual(r.series_by_kind.ct, 3); this.verifyEqual(r.series_by_kind.rtstruct, 1);
+            this.verifyEqual(r.written.pet, 4); this.verifyEqual(r.written.ct, 3); this.verifyEqual(r.written.roi, 2);
+            this.verifyEqual(numel(r.series), 3 + 1 + 3 + 1, strjoin(r.series, ' | '));   % every series has an outcome line
+            this.verifyTrue(all(contains(r.series, {'written', 'ROI masks'})), strjoin(r.series, ' | '));
             this.verifyEqual(r.refused, 0, strjoin(r.refusals, ' | '));
             this.verifyEqual(r.quarantined, 0);
             % Every dcm2niix release writes AcquisitionTime; newer ones also write TimeZero,
@@ -55,7 +57,7 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             names = {files.name};
             this.verifyTrue(any(contains(names, '_trc-fdg_proc-shdeid_pet.nii.gz')));
             this.verifyTrue(any(contains(names, '_proc-shdeid_ct.nii.gz')));
-            this.verifyTrue(any(contains(names, '_roi-leftcaudate_proc-shdeid_mask.nii.gz')));
+            this.verifyTrue(any(contains(names, '_roi-leftcaudate_run-01_proc-shdeid_mask.nii.gz')), strjoin(names, ','));   % subject A's PET is run-01 (dynamic) of two
             p = mlphibroker.SidecarPolicy({'Zorbwick', 'Synthetic Institute', 'Alpha', 'Beta', 'SYN000001', 'SYN000002'});
             for i = 1:numel(files)
                 if endsWith(files(i).name, '.json')
@@ -84,8 +86,25 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             [d, a, b] = mlphibroker.Nifti1.headerText(nii); this.verifyEmpty(d); this.verifyEmpty(a); this.verifyEmpty(b);
             info = niftiinfo(nii); this.verifyEqual(info.ImageSize, [16 16 4 4]);
         end
+        function test_static_pet_from_headers(this)
+            % The one-frame delayed scan: dcm2niix writes no FrameTimesStart, so timing and the
+            % administration offset (injection 60 min + 131 s before this scan) come from headers.
+            % Only subject A has two PET series in one session (dynamic, then the delayed static), so
+            % exactly one run-02 PET exists in this run, whatever synthetic code A was minted.
+            j = dir(fullfile(this.outRoot, '**', '*_trc-fdg_run-02_proc-shdeid_pet.json'));
+            this.assertEqual(numel(j), 1, 'the delayed static PET should be run-02 of subject A''s session');
+            sc = jsondecode(fileread(fullfile(j(1).folder, j(1).name)));
+            this.verifyEqual(sc.times, 0); this.verifyEqual(sc.taus, 300); this.verifyEqual(sc.timesMid, 150);
+            this.verifyEqual(sc.FrameTimingSource, 'dicom_headers');
+            this.verifyEqual(sc.AdminFromScanStart_s, -(3600 + 131), 'AbsTol', 1e-6);
+            this.verifyTrue(sc.DecayCorrected); this.verifyEqual(sc.halflife, 6586.2);
+            d = dir(fullfile(j(1).folder, '*_trc-fdg_run-01_proc-shdeid_pet.json'));
+            this.assertEqual(numel(d), 1, 'dynamic PET should be run-01');
+            scd = jsondecode(fileread(fullfile(d(1).folder, d(1).name)));
+            this.verifyEqual(scd.times(:)', [0 30 60 120]);
+        end
         function test_roi_mask_geometry(this)
-            m = dir(fullfile(this.outRoot, '**', '*_roi-wholebrain_proc-shdeid_mask.nii.gz'));
+            m = dir(fullfile(this.outRoot, '**', '*_roi-wholebrain*_proc-shdeid_mask.nii.gz'));
             this.verifyEqual(numel(m), 1);
             mask = niftiread(fullfile(m(1).folder, m(1).name));
             this.verifyEqual(size(mask), [16 16 4]);
@@ -99,7 +118,7 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             % In NIfTI RAS that is (+4, +4). The centroid of the mask, mapped through the sform
             % of the file it was written with, must land there: this pins the LPS/RAS handling and
             % the DICOM-grid to dcm2niix-grid placement.
-            m = dir(fullfile(this.outRoot, '**', '*_roi-leftcaudate_proc-shdeid_mask.nii.gz'));
+            m = dir(fullfile(this.outRoot, '**', '*_roi-leftcaudate*_proc-shdeid_mask.nii.gz'));
             this.assertEqual(numel(m), 1);
             gz = fullfile(m(1).folder, m(1).name);
             mask = niftiread(gz); S = mlphibroker.Nifti1.sform(gz);
@@ -108,8 +127,8 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             this.verifyEqual(c(1:2)', [4 4], 'AbsTol', 0.6);
             this.verifyEqual(c(3), 3, 'AbsTol', 0.6);          % slices at z = 0,2,4,6 mm
             this.verifyGreaterThan(nnz(mask), 4 * 20); this.verifyLessThan(nnz(mask), 4 * 40);
-            pet = dir(fullfile(m(1).folder, '*_trc-fdg_proc-shdeid_pet.nii.gz'));
-            this.verifyEqual(mlphibroker.Nifti1.sform(fullfile(pet(1).folder, pet(1).name)), S);
+            scm = jsondecode(fileread(regexprep(gz, '\.nii\.gz$', '.json')));
+            this.verifyEqual(mlphibroker.Nifti1.sform(fullfile(m(1).folder, scm.ReferenceFile)), S);   % same grid as its reference PET
         end
         function test_crosswalk_template_then_load(this)
             tmp = fullfile(this.outRoot, 'template_PHI.csv');
@@ -172,9 +191,12 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             this.verifyEqual(numel(dir(fullfile(d, '*_shdeid_report.json'))), 1);
             sr = jsondecode(fileread(fullfile(d, 'sub-900202_ses-01_shdeid_report.json')));
             this.verifyEqual(sr.studies, 2); this.verifyEqual(sr.written.pet, 2); this.verifyEqual(sr.written.ct, 2);
-            % the single-study session keeps plain names
+            % the single-study session: two PET series (dynamic + delayed) are numbered, the lone CT is not
             n1 = {dir(fullfile(out2, 'sub-900201', 'ses-01', '*.nii.gz')).name};
-            this.verifyTrue(any(strcmp(n1, 'sub-900201_ses-01_trc-fdg_proc-shdeid_pet.nii.gz')), strjoin(n1, ','));
+            this.verifyTrue(any(strcmp(n1, 'sub-900201_ses-01_trc-fdg_run-01_proc-shdeid_pet.nii.gz')), strjoin(n1, ','));
+            this.verifyTrue(any(strcmp(n1, 'sub-900201_ses-01_trc-fdg_run-02_proc-shdeid_pet.nii.gz')));
+            this.verifyTrue(any(strcmp(n1, 'sub-900201_ses-01_proc-shdeid_ct.nii.gz')));
+            this.verifyTrue(any(strcmp(n1, 'sub-900201_ses-01_roi-wholebrain_run-01_proc-shdeid_mask.nii.gz')));   % mask follows its reference
         end
         function test_roster_template_round_trip(this)
             rp = fullfile(this.outRoot, 'roster2_PHI.csv');

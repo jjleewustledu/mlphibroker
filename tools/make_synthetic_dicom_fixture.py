@@ -104,6 +104,54 @@ def write_pet(folder, patient, study, acq, nx=16, ny=16, nz=4):
     return series_uid, sops
 
 
+def write_static_pet(folder, patient, study, acq, nx=16, ny=16, nz=4):
+    """One-frame delayed PET of the same injection, 60 min after the dynamic scan."""
+    series_uid = generate_uid()
+    for z in range(nz):
+        ds = base_ds(pydicom.uid.PositronEmissionTomographyImageStorage, patient, study, acq, series_uid, 4, "PT", "Synthetic FDG delayed static")
+        ds.AcquisitionTime = acq.strftime("%H%M%S.000000")
+        ds.ContentDate = ds.StudyDate
+        ds.ContentTime = ds.AcquisitionTime
+        ds.AcquisitionNumber = 1
+        ds.InstanceNumber = z + 1
+        ds.ImageType = ["ORIGINAL", "PRIMARY"]
+        ds.PatientPosition = "HFS"
+        ds.BodyPartExamined = "BRAIN"
+        ds.ImagePositionPatient = [-8.0, -8.0, float(z * 2.0)]
+        ds.ImageOrientationPatient = [1, 0, 0, 0, 1, 0]
+        ds.PixelSpacing = [1.0, 1.0]
+        ds.SliceThickness = 2.0
+        ds.SliceLocation = float(z * 2.0)
+        ds.Rows, ds.Columns = ny, nx
+        ds.SamplesPerPixel = 1
+        ds.PhotometricInterpretation = "MONOCHROME2"
+        ds.BitsAllocated = ds.BitsStored = 16
+        ds.HighBit = 15
+        ds.PixelRepresentation = 0
+        ds.RescaleIntercept = 0
+        ds.RescaleSlope = 1.0
+        ds.Units = "BQML"
+        ds.DecayCorrection = "START"
+        ds.CorrectedImage = ["DECY", "ATTN", "SCAT", "RAN", "NORM"]
+        ds.FrameReferenceTime = 300.0 * 1000 / 2
+        ds.ActualFrameDuration = 300 * 1000
+        ds.ImageIndex = z + 1
+        ds.NumberOfSlices = nz
+        ds.NumberOfTimeSlices = 1
+        ds.ReconstructionMethod = "OSEM3D 4i21s"
+        ds.AttenuationCorrectionMethod = "CT-based"
+        rp = Dataset()
+        rp.Radiopharmaceutical = "Fludeoxyglucose F18"
+        rp.RadiopharmaceuticalStartTime = (acq - datetime.timedelta(seconds=131 + 3600)).strftime("%H%M%S.000000")
+        rp.RadionuclideTotalDose = 185000000.0
+        rp.RadionuclideHalfLife = 6586.2
+        rp.RadionuclidePositronFraction = 0.9686
+        ds.RadiopharmaceuticalInformationSequence = [rp]
+        ds.PixelData = (rng.integers(0, 500, size=(ny, nx))).astype(np.uint16).tobytes()
+        ds.save_as(folder / f"PTSTATIC_{z:02d}.dcm", write_like_original=False)
+    return series_uid
+
+
 def write_ct(folder, patient, study, acq, nx=16, ny=16, nz=4):
     series_uid = generate_uid()
     for z in range(nz):
@@ -200,6 +248,7 @@ pA = ("Synthetic^Alpha", "SYN000001", "19700101", "O")
 sA = (generate_uid(), generate_uid())
 acqA = datetime.datetime(2001, 2, 3, 12, 0, 11)
 pet_uid, sops = write_pet(a_dir, pA, sA, acqA)
+write_static_pet(a_dir, pA, sA, acqA + datetime.timedelta(minutes=60))
 write_ct(a_dir, pA, sA, acqA - datetime.timedelta(minutes=5))
 write_rtstruct(a_dir, pA, sA, acqA, pet_uid, sops)
 (a_dir / "notes.txt").write_text("stray non-DICOM file\n")

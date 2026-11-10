@@ -68,6 +68,27 @@ classdef SidecarPolicy
             end
             hits.any = (hits.date + hits.clock_time + hits.dated_session + hits.deny_list) > 0;
         end
+
+        function [hits, byField] = scanStruct(this, sc, extraText)
+            %SCANSTRUCT  Scan a sidecar field by field; byField lists the KEYS that carry a hit.
+            %   Key names are not PHI and may be reported; values never are.
+            if nargin < 3, extraText = ''; end
+            hits = this.scan([jsonencode(sc) ' ' extraText]);
+            byField = {};
+            f = fieldnames(sc);
+            for i = 1:numel(f)
+                h = this.scan(jsonencode(sc.(f{i})));
+                if h.any
+                    kinds = {};
+                    if h.date > 0, kinds{end+1} = 'date'; end %#ok<AGROW>
+                    if h.clock_time > 0, kinds{end+1} = 'clock_time'; end %#ok<AGROW>
+                    if h.dated_session > 0, kinds{end+1} = 'dated_session'; end %#ok<AGROW>
+                    if h.deny_list > 0, kinds{end+1} = 'deny_list'; end %#ok<AGROW>
+                    byField{end+1} = sprintf('%s:%s', f{i}, strjoin(kinds, '+')); %#ok<AGROW>
+                end
+            end
+            if ~isempty(extraText) && this.scan(extraText).any, byField{end+1} = 'file_name'; end
+        end
     end
 
     methods (Static)

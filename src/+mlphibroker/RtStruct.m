@@ -12,9 +12,8 @@ classdef RtStruct
     %   scan, then become roi-<name> tokens (alphanumerics only). No dates, times, names or UIDs.
 
     methods (Static)
-        function [n, quarantined] = convert(rsRow, studyRows, written, sub, ses, outDir, policy, run)
+        function [n, quarantined] = convert(rsRow, studyRows, written, sub, ses, outDir, policy, runOf)
             import mlphibroker.*
-            if nargin < 8 || isempty(run), run = 0; end
             n = 0; quarantined = 0;
             info = dicominfo(rsRow.Files{1}{1}, 'UseDictionaryVR', true);
             ref = RtStruct.referenceSeries(info, rsRow, studyRows);
@@ -22,6 +21,7 @@ classdef RtStruct
             uid = ref.SeriesInstanceUID{1};
             if ~isKey(written, uid), error('mlphibroker:rtstruct', 'referenced series was not converted'); end
             refGz = written(uid);
+            run = 0; if nargin >= 8 && isa(runOf, 'containers.Map') && isKey(runOf, uid), run = runOf(uid); end
             files = RtStruct.firstFrameFiles(ref.Files{1});
             [~, spatial] = dicomreadVolume(files);
             S = Nifti1.sform(refGz);

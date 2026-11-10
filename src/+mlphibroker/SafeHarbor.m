@@ -36,7 +36,7 @@ classdef SafeHarbor
 
     properties (Constant)
         TOOL = 'mlphibroker'
-        VERSION = '0.1.1'
+        VERSION = '0.2.0'
     end
 
     methods (Static)
@@ -71,7 +71,7 @@ classdef SafeHarbor
                 'subjects', numel(unique(xw.Subject)), 'sessions', height(unique(xw(:, {'Subject', 'Session'}))), 'studies', height(xw), ...
                 'series_by_kind', tree.countByKind(), 'written', struct('pet', 0, 'ct', 0, 'roi', 0), ...
                 'refused', 0, 'unhandled_series', 0, 'quarantined', 0, 'dropped_key_names', {{}}, ...
-                'refusals', {{}});
+                'refusals', {{}}, 'series', {{}});
             dropped = {};
             groups = unique(xw(:, {'Subject', 'Session'}), 'stable');
             for g = 1:height(groups)
@@ -82,43 +82,56 @@ classdef SafeHarbor
                 if ~isfolder(outDir), mkdir(outDir); end
                 sr = struct('subject', sub, 'session', ses, 'studies', numel(studyUids), ...
                     'written', struct('pet', 0, 'ct', 0, 'roi', 0), 'refused', 0, 'unhandled', 0, ...
-                    'quarantined', 0, 'refusals', {{}});
+                    'quarantined', 0, 'refusals', {{}}, 'series', {{}});
                 written = containers.Map('KeyType', 'char', 'ValueType', 'any');  % SeriesInstanceUID -> converted .nii.gz
+                % run-NN: assigned per kind across the whole session (several studies, or several PET
+                % series in one study such as a dynamic and a delayed scan), in acquisition order,
+                % only when more than one series of that kind exists. Masks take their reference's run.
+                runOf = tree.runNumbers(studyUids);
                 for st = 1:numel(studyUids)
                     rows = tree.seriesOfStudy(studyUids{st});
-                    run = 0; if numel(studyUids) > 1, run = st; end   % run-NN only when a session holds several studies
                     for r = 1:height(rows)
                         kind = char(rows.Kind(r));
+                        tag = sprintf('study %d %s ser-%g (%d files, %d frames)', st, kind, rows.SeriesNumber(r), numel(rows.Files{r}), rows.Frames(r));
                         try
                             switch kind
                                 case {'pet_dynamic', 'pet_static'}
-                                    [n, d, q, paths] = PetSession.convert(rows(r, :), sub, ses, outDir, conv, policy, opts, run);
+                                    [n, d, q, paths, detail] = PetSession.convert(rows(r, :), sub, ses, outDir, conv, policy, opts, runOf(rows.SeriesInstanceUID{r}));
                                     sr.written.pet = sr.written.pet + n; dropped = union(dropped, d);
                                     sr.quarantined = sr.quarantined + q;
                                     if n > 0, written(rows.SeriesInstanceUID{r}) = paths{1}; end
+                                    if n + q == 0, error('mlphibroker:silent', 'no output and no refusal (dcm2niix wrote nothing usable)'); end
+                                    sr.series{end+1} = sprintf('%s: %s', tag, strjoin(detail, '; '));
                                 case 'ct'
-                                    [n, d, q, paths] = CtSeries.convert(rows(r, :), sub, ses, outDir, conv, policy, run);
+                                    [n, d, q, paths, detail] = CtSeries.convert(rows(r, :), sub, ses, outDir, conv, policy, runOf(rows.SeriesInstanceUID{r}));
                                     sr.written.ct = sr.written.ct + n; dropped = union(dropped, d);
                                     sr.quarantined = sr.quarantined + q;
                                     if n > 0, written(rows.SeriesInstanceUID{r}) = paths{1}; end
+                                    if n + q == 0, error('mlphibroker:silent', 'no output and no refusal (dcm2niix wrote nothing usable)'); end
+                                    sr.series{end+1} = sprintf('%s: %s', tag, strjoin(detail, '; '));
                                 case 'rtstruct'
                                     % handled after the images so the reference geometry exists
                                 otherwise
                                     sr.unhandled = sr.unhandled + 1;
+                                    sr.series{end+1} = sprintf('%s: unhandled modality %s', tag, char(rows.Modality(r)));
                             end
                         catch err
                             sr.refused = sr.refused + 1;
                             sr.refusals{end+1} = sprintf('%s series: %s', kind, strtok(err.message, newline));
+                            sr.series{end+1} = sprintf('%s: refused: %s', tag, strtok(err.message, newline));
                         end
                     end
                     rs = rows(strcmp(rows.Kind, 'rtstruct'), :);
                     for r = 1:height(rs)
+                        tag = sprintf('study %d rtstruct ser-%g', st, rs.SeriesNumber(r));
                         try
-                            [n, q] = RtStruct.convert(rs(r, :), rows, written, sub, ses, outDir, policy, run);
+                            [n, q] = RtStruct.convert(rs(r, :), rows, written, sub, ses, outDir, policy, runOf);
                             sr.written.roi = sr.written.roi + n; sr.quarantined = sr.quarantined + q;
+                            sr.series{end+1} = sprintf('%s: %d ROI masks written, %d quarantined', tag, n, q);
                         catch err
                             sr.refused = sr.refused + 1;
                             sr.refusals{end+1} = sprintf('rtstruct: %s', strtok(err.message, newline));
+                            sr.series{end+1} = sprintf('%s: refused: %s', tag, strtok(err.message, newline));
                         end
                     end
                 end
@@ -130,7 +143,9 @@ classdef SafeHarbor
                 report.unhandled_series = report.unhandled_series + sr.unhandled;
                 report.quarantined = report.quarantined + sr.quarantined;
                 report.refusals = [report.refusals, sr.refusals];
+                report.series = [report.series, sr.series];
             end
+            report.unhandled_by_modality = tree.countUnhandledByModality();
             report.dropped_key_names = sort(dropped);
             Report.write(fullfile(outRoot, 'shdeid_batch_report.json'), report);
             fprintf('%s %s: %d subjects, %d studies; pet %d ct %d roi %d written; %d refused, %d quarantined\n', ...

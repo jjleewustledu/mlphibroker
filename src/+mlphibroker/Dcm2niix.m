@@ -57,7 +57,15 @@ classdef Dcm2niix
             for i = 1:numel(js)
                 j = fullfile(js(i).folder, js(i).name);
                 n = regexprep(j, '\.json$', '.nii.gz');
-                if ~isfile(n), continue; end
+                if ~isfile(n)
+                    alt = regexprep(j, '\.json$', '.nii');
+                    if isfile(alt)   % compression unavailable on this host: compress here
+                        gz = gzip(alt, tmpOut); n = gz{1}; delete(alt);
+                    else
+                        error('mlphibroker:dcm2niix', 'dcm2niix wrote sidecar %s without an image (log: %s)', ...
+                            js(i).name, strtrim(regexprep(log, '\s+', ' ')));
+                    end
+                end
                 movefile(j, fullfile(outDir, js(i).name));
                 movefile(n, fullfile(outDir, regexprep(js(i).name, '\.json$', '.nii.gz')));
                 jsons{end+1} = fullfile(outDir, js(i).name); %#ok<AGROW>

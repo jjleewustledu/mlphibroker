@@ -91,6 +91,47 @@ classdef DicomTree
             end
         end
 
+        function runOf = runNumbers(this, studyUids)
+            %RUNNUMBERS  Map SeriesInstanceUID -> run index per kind across the given studies (0 = unnumbered).
+            %   Studies are taken in the order given; within a study, series are ordered by their first
+            %   header's SeriesTime/AcquisitionTime (PHI-side, only the order is kept), then SeriesNumber.
+            %   A kind with a single series in the session stays unnumbered (plain file names).
+            runOf = containers.Map('KeyType', 'char', 'ValueType', 'double');
+            for kindSet = {{'pet_dynamic', 'pet_static'}, {'ct'}}
+                uids = {}; keys = [];
+                for st = 1:numel(studyUids)
+                    rows = this.seriesOfStudy(studyUids{st});
+                    rows = rows(ismember(rows.Kind, kindSet{1}), :);
+                    for r = 1:height(rows)
+                        h = rows.FirstHeader{r}; t = '';
+                        if isfield(h, 'SeriesTime'), t = char(string(h.SeriesTime)); elseif isfield(h, 'AcquisitionTime'), t = char(string(h.AcquisitionTime)); end
+                        sec = mlphibroker.PetSession.clockSeconds(t); if isempty(sec), sec = 0; end
+                        uids{end+1} = rows.SeriesInstanceUID{r}; %#ok<AGROW>
+                        keys(end+1) = st * 1e6 + sec + rows.SeriesNumber(r) * 1e-6; %#ok<AGROW>
+                    end
+                end
+                [~, order] = sort(keys);
+                for i = 1:numel(order)
+                    if numel(order) > 1, runOf(uids{order(i)}) = i; else, runOf(uids{order(i)}) = 0; end
+                end
+            end
+            for st = 1:numel(studyUids)   % every series gets an entry so lookups never miss
+                rows = this.seriesOfStudy(studyUids{st});
+                for r = 1:height(rows)
+                    if ~isKey(runOf, rows.SeriesInstanceUID{r}), runOf(rows.SeriesInstanceUID{r}) = 0; end
+                end
+            end
+        end
+
+        function c = countUnhandledByModality(this)
+            c = struct();
+            rows = this.Series(strcmp(this.Series.Kind, 'other'), :);
+            for m = unique(rows.Modality)'
+                key = regexprep(m{1}, '[^A-Za-z0-9]', '_'); if isempty(key), key = 'blank'; end
+                c.(key) = sum(strcmp(rows.Modality, m{1}));
+            end
+        end
+
         function ids = uniquePatients(this)
             ids = unique(this.Series.PatientID, 'stable');
         end
