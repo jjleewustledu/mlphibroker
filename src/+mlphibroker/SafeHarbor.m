@@ -26,6 +26,9 @@ classdef SafeHarbor
     %     Dcm2niixExe    path to dcm2niix(.exe); default: found on PATH
     %     DenyListFile   one staff/participant name per line (key vault)
     %     Tracer         token override when the radiopharmaceutical name is ambiguous
+    %     RedactDenyInText logical, default true: a deny-list match inside ProtocolName or
+    %                    SeriesDescription is replaced by REDACTED (recorded in the sidecar as
+    %                    RedactedKeys) instead of quarantining the pair; false quarantines
     %     SyntheticTest  logical; permits running under Claude Code for sub-9xxxxx fixtures only
     %
     %   Governing text: idif2026 specs/SPEC_phi_broker.md §0 item 5, §4.2, §5, §13; WO-0002.
@@ -36,7 +39,7 @@ classdef SafeHarbor
 
     properties (Constant)
         TOOL = 'mlphibroker'
-        VERSION = '0.2.2'
+        VERSION = '0.2.3'
     end
 
     methods (Static)
@@ -103,7 +106,7 @@ classdef SafeHarbor
                                     if n + q == 0, error('mlphibroker:silent', 'no output and no refusal (dcm2niix wrote nothing usable)'); end
                                     sr.series{end+1} = sprintf('%s: %s', tag, strjoin(detail, '; '));
                                 case 'ct'
-                                    [n, d, q, paths, detail] = CtSeries.convert(rows(r, :), sub, ses, outDir, conv, policy, runOf(rows.SeriesInstanceUID{r}));
+                                    [n, d, q, paths, detail] = CtSeries.convert(rows(r, :), sub, ses, outDir, conv, policy, runOf(rows.SeriesInstanceUID{r}), opts);
                                     sr.written.ct = sr.written.ct + n; dropped = union(dropped, d);
                                     sr.quarantined = sr.quarantined + q;
                                     if n > 0, written(rows.SeriesInstanceUID{r}) = paths{1}; end

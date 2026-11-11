@@ -3,9 +3,10 @@ classdef CtSeries
     %   [n, dropped, quarantined] = mlphibroker.CtSeries.convert(row, sub, ses, outDir, conv, policy)
 
     methods (Static)
-        function [n, dropped, quarantined, paths, detail] = convert(row, sub, ses, outDir, conv, policy, run)
+        function [n, dropped, quarantined, paths, detail] = convert(row, sub, ses, outDir, conv, policy, run, opts)
             import mlphibroker.*
             if nargin < 7 || isempty(run), run = 0; end
+            if nargin < 8, opts = struct(); end
             n = 0; quarantined = 0; dropped = {}; paths = {}; detail = {};
             prefix = sprintf('%s_%s_ser-', sub, ses);
             tmpOut = tempname(); mkdir(tmpOut);
@@ -21,6 +22,10 @@ classdef CtSeries
                     'work_order', 'WO-0002r0', 'policy', 'allow_list', 'calendar_dates', 'none', ...
                     'clock_times', 'none', 'nifti_header_scrubbed', true);
                 base = sprintf('%s_%s%s_proc-shdeid_ct', sub, ses, PetSession.runTag(run, k, numel(jsons)));
+                if ~(exist('opts', 'var') && isstruct(opts) && isfield(opts, 'RedactDenyInText') && isequal(opts.RedactDenyInText, false))
+                    [sc, redactedKeys] = policy.redact(sc);        % staff names in protocol text: redact, record, keep the series
+                    if ~isempty(redactedKeys), sc.RedactedKeys = redactedKeys; end
+                end
                 [hits, byField] = policy.scanStruct(sc, base);
                 if hits.any
                     quarantined = quarantined + 1;

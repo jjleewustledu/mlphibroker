@@ -47,6 +47,10 @@ classdef PetSession
                 sc.FrameTimingSource = timingSource;
                 sc.TracerRadionuclideCheck = nuclideCheck;   % 'agrees' | 'unparsed:<text>' | 'absent'
                 base = sprintf('%s_%s_trc-%s%s_proc-shdeid_pet', sub, ses, token, PetSession.runTag(run, k, numel(jsons)));
+                if ~(exist('opts', 'var') && isstruct(opts) && isfield(opts, 'RedactDenyInText') && isequal(opts.RedactDenyInText, false))
+                    [sc, redactedKeys] = policy.redact(sc);        % staff names in protocol text: redact, record, keep the series
+                    if ~isempty(redactedKeys), sc.RedactedKeys = redactedKeys; end
+                end
                 [hits, byField] = policy.scanStruct(sc, base);
                 if hits.any
                     quarantined = quarantined + 1;

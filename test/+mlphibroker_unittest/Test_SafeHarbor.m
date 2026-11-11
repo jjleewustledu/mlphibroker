@@ -20,7 +20,7 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             this.assumeTrue(~isempty(exe) && isfile(exe), 'dcm2niix not found; end-to-end test skipped (could_not_run)');
             this.outRoot = tempname(); mkdir(this.outRoot);
             deny = fullfile(this.outRoot, 'deny.txt');
-            fid = fopen(deny, 'w'); fprintf(fid, 'Zorbwick\nSynthetic Institute\n'); fclose(fid);
+            fid = fopen(deny, 'w'); fprintf(fid, 'Zorbwick\nSynthetic Institute\nSynthetic\n'); fclose(fid);   % 'Synthetic' is in every SeriesDescription: redacted, not quarantined
             opts = struct('AutoCrosswalk', true, 'Dcm2niixExe', exe, 'DenyListFile', deny, ...
                 'SyntheticTest', true, 'Seed', 7);
             this.report = mlphibroker.SafeHarbor.run(this.root, this.outRoot, opts);
@@ -107,6 +107,19 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             this.assertEqual(numel(d), 1, 'dynamic PET should be run-01');
             scd = jsondecode(fileread(fullfile(d(1).folder, d(1).name)));
             this.verifyEqual(scd.times(:)', [0 30 60 120]);
+        end
+        function test_deny_match_in_protocol_text_is_redacted_not_quarantined(this)
+            j = dir(fullfile(this.outRoot, '**', '*_proc-shdeid_pet.json'));
+            this.assertGreaterThan(numel(j), 0);
+            sc = jsondecode(fileread(fullfile(j(1).folder, j(1).name)));
+            this.verifyTrue(contains(sc.SeriesDescription, 'REDACTED'), sc.SeriesDescription);
+            this.verifyFalse(contains(lower(sc.SeriesDescription), 'synthetic'));
+            this.verifyTrue(any(strcmp(cellstr(sc.RedactedKeys), 'SeriesDescription')));
+            this.verifyEqual(this.report.quarantined, 0);
+            p = mlphibroker.SidecarPolicy({'Gropler'});
+            [out, red] = p.redact(struct('ProtocolName', 'Gropler ECL1i dynamic', 'SeriesDescription', 'brain', 'Units', 'Bq/mL'));
+            this.verifyEqual(out.ProtocolName, 'REDACTED ECL1i dynamic'); this.verifyEqual(red, {'ProtocolName'});
+            this.verifyEqual(out.Units, 'Bq/mL');
         end
         function test_roi_mask_geometry(this)
             m = dir(fullfile(this.outRoot, '**', '*_roi-wholebrain*_proc-shdeid_mask.nii.gz'));

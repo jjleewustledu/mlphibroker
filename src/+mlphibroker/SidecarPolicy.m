@@ -69,6 +69,30 @@ classdef SidecarPolicy
             hits.any = (hits.date + hits.clock_time + hits.dated_session + hits.deny_list) > 0;
         end
 
+        function [sc, redacted] = redact(this, sc, fields)
+            %REDACT  Replace deny-list matches inside free-text fields with REDACTED instead of quarantining.
+            %   [sc, redacted] = p.redact(sc, fields) edits sc.(field) for each named field that holds
+            %   text, replacing every whole-word, case-insensitive deny entry by 'REDACTED', and returns
+            %   the names of the fields it changed. Protocol and series descriptions are often named
+            %   after the investigator; redacting the name keeps the series and records the edit.
+            if nargin < 3, fields = {'ProtocolName', 'SeriesDescription'}; end
+            redacted = {};
+            for f = cellstr(fields)
+                if ~isfield(sc, f{1}) || isempty(sc.(f{1})), continue; end
+                v = sc.(f{1}); if ~(ischar(v) || isstring(v)), continue; end
+                txt = char(string(v)); before = txt;
+                for i = 1:numel(this.Deny)
+                    d = strtrim(char(this.Deny{i}));
+                    if numel(d) < 3, continue; end
+                    txt = regexprep(txt, ['(?i)(?<![A-Za-z])' regexptranslate('escape', d) '(?![A-Za-z])'], 'REDACTED');
+                end
+                if ~strcmp(txt, before)
+                    sc.(f{1}) = regexprep(txt, '(REDACTED)(\s+REDACTED)+', 'REDACTED');
+                    redacted{end+1} = f{1}; %#ok<AGROW>
+                end
+            end
+        end
+
         function [hits, byField] = scanStruct(this, sc, extraText)
             %SCANSTRUCT  Scan a sidecar field by field; byField lists the KEYS that carry a hit.
             %   Key names are not PHI and may be reported; values never are.

@@ -78,6 +78,11 @@ the PHI side only, which key and which entry caused a quarantine:
 mlphibroker.SidecarPolicy.explainQuarantine(outRoot, 'D:\MIM\MASH\deny_names_PHI.txt')   % prints matched values: never paste outside the PHI zone
 ```
 
+A deny-list match inside `ProtocolName` or `SeriesDescription` (protocols are often named after
+the investigator) is **redacted** to `REDACTED` and recorded in the sidecar as `RedactedKeys`
+rather than quarantining the series; `opts.RedactDenyInText = false` restores quarantine. A match
+in any other field, or any date, clock-time or dated-session shape, still quarantines.
+
 Secondary captures (dose reports, screen saves, MIPs) and localizers are never converted, because
 text may be burned into their pixels; the report counts them as `secondary` / `localizer`.
 
