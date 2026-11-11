@@ -23,7 +23,7 @@ classdef RtStruct
             refGz = written(uid);
             run = 0; if nargin >= 8 && isa(runOf, 'containers.Map') && isKey(runOf, uid), run = runOf(uid); end
             files = RtStruct.firstFrameFiles(ref.Files{1});
-            [~, spatial] = dicomreadVolume(files);
+            spatial = RtStruct.geometryFromHeaders(files);   % own geometry: slice order along the normal, any direction
             S = Nifti1.sform(refGz);
             dims = Nifti1.dim(refGz);
             contours = dicomContours(info);
@@ -44,7 +44,7 @@ classdef RtStruct
                     quarantined = quarantined + 1;
                     continue
                 end
-                mask = createMask(contours, contours.ROIs.Number(i), spatial);
+                mask = RtStruct.rasterize(contours, i, spatial);
                 onGrid = RtStruct.toReferenceGrid(logical(mask), spatial, S, dims(1:3));
                 Nifti1.writeLike(refGz, fullfile(outDir, [base '.nii.gz']), uint8(onGrid));
                 sc.VoxelsInside = nnz(onGrid); sc.VoxelsInsideDicomGrid = nnz(mask);
@@ -70,6 +70,60 @@ classdef RtStruct
                 hit = strcmp(img.FrameOfReferenceUID, rsRow.FrameOfReferenceUID{1});
             end
             if any(hit), ref = img(find(hit, 1), :); else, ref = img(1, :); end
+        end
+
+        function spatial = geometryFromHeaders(files)
+            %GEOMETRYFROMHEADERS  Slice geometry of one 3-D volume from its DICOM headers.
+            %   Returns PatientPositions [nS x 3] (LPS, mm) sorted ascending along the slice normal,
+            %   PatientOrientations [2 x 3 x nS], PixelSpacings [nS x 2] ([row col] mm) and ImageSize
+            %   [rows cols nS]. Works whatever order the files were stored in.
+            files = cellstr(files);
+            P = []; O = []; PS = []; RC = [];
+            for i = 1:numel(files)
+                h = dicominfo(files{i}, 'UseDictionaryVR', true);
+                if ~isfield(h, 'ImagePositionPatient') || ~isfield(h, 'ImageOrientationPatient'), continue; end
+                P(end+1, :) = double(h.ImagePositionPatient(:))'; %#ok<AGROW>
+                o = double(h.ImageOrientationPatient(:))'; O(:, :, end+1) = [o(1:3); o(4:6)]; %#ok<AGROW>
+                PS(end+1, :) = double(h.PixelSpacing(:))'; %#ok<AGROW>
+                RC(end+1, :) = double([h.Rows, h.Columns]); %#ok<AGROW>
+            end
+            if isempty(P), error('mlphibroker:rtstruct', 'reference series has no ImagePositionPatient'); end
+            O = O(:, :, 2:end);   % drop the empty first page created by end+1 on an empty array
+            X = O(1, :, 1) / norm(O(1, :, 1)); Y = O(2, :, 1) / norm(O(2, :, 1)); N = cross(X, Y);
+            [~, order] = sort(P * N');
+            spatial = struct('PatientPositions', P(order, :), 'PatientOrientations', O(:, :, order), ...
+                'PixelSpacings', PS(order, :), 'ImageSize', [RC(1, 1), RC(1, 2), numel(order)]);
+        end
+
+        function mask = rasterize(contours, roiIndex, spatial)
+            %RASTERIZE  CLOSED_PLANAR contours of one ROI -> logical [rows cols slices] on `spatial`.
+            %   Each contour's points (LPS mm) are projected onto the slice whose plane they lie in and
+            %   filled with poly2mask; several contours on one slice combine by XOR (holes). Points
+            %   off every slice plane by more than half a slice spacing refuse the ROI.
+            P1 = spatial.PatientPositions(1, :);
+            O = spatial.PatientOrientations(:, :, 1);
+            X = O(1, :) / norm(O(1, :)); Y = O(2, :) / norm(O(2, :)); N = cross(X, Y);
+            ps = spatial.PixelSpacings(1, :);
+            nS = spatial.ImageSize(3);
+            if nS > 1, dz = dot(spatial.PatientPositions(2, :) - P1, N); else, dz = 1; end
+            mask = false(spatial.ImageSize);
+            data = contours.ROIs.ContourData{roiIndex};
+            if ~iscell(data), data = {data}; end
+            for c = 1:numel(data)
+                pts = data{c};
+                if isempty(pts), continue; end
+                if size(pts, 2) ~= 3, pts = reshape(pts, 3, [])'; end
+                rel = pts - P1;
+                zc = rel * N' / dz;                               % continuous slice index (0-based)
+                sIdx = round(mean(zc)) + 1;
+                if abs(mean(zc) - (sIdx - 1)) > 0.5 || sIdx < 1 || sIdx > nS
+                    error('mlphibroker:rtstruct', 'a contour lies off every slice plane of the reference series');
+                end
+                col = rel * X' / ps(2) + 1;                       % 1-based pixel centre coordinates
+                row = rel * Y' / ps(1) + 1;
+                plane = poly2mask(col, row, spatial.ImageSize(1), spatial.ImageSize(2));
+                mask(:, :, sIdx) = xor(mask(:, :, sIdx), plane);
+            end
         end
 
         function files = firstFrameFiles(files)

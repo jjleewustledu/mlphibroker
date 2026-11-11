@@ -38,15 +38,15 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             r = this.report;
             this.verifyEqual(r.subjects, 2); this.verifyEqual(r.studies, 3);
             this.verifyEqual(r.series_by_kind.pet_dynamic, 3); this.verifyEqual(r.series_by_kind.pet_static, 1);
-            this.verifyEqual(r.series_by_kind.ct, 3); this.verifyEqual(r.series_by_kind.rtstruct, 1);
-            this.verifyEqual(r.written.pet, 4); this.verifyEqual(r.written.ct, 3); this.verifyEqual(r.written.roi, 2);
+            this.verifyEqual(r.series_by_kind.ct, 3); this.verifyEqual(r.series_by_kind.rtstruct, 2);
+            this.verifyEqual(r.written.pet, 4); this.verifyEqual(r.written.ct, 3); this.verifyEqual(r.written.roi, 4);
             this.verifyEqual(r.series_by_kind.secondary, 1);                       % the dose-report capture
             this.verifyEqual(r.unhandled_series, 1);
-            this.verifyEqual(numel(r.series), 3 + 1 + 3 + 1 + 1, strjoin(r.series, ' | '));   % every series has an outcome line
+            this.verifyEqual(numel(r.series), 3 + 1 + 3 + 2 + 1, strjoin(r.series, ' | '));   % every series has an outcome line
             this.verifyTrue(any(contains(r.series, 'burned into the pixels')), strjoin(r.series, ' | '));
             this.verifyTrue(all(contains(r.series, {'written', 'ROI masks', 'not converted'})), strjoin(r.series, ' | '));
             names = {dir(fullfile(this.outRoot, '**', '*.nii.gz')).name};
-            this.verifyFalse(any(contains(names, 'ser-502')) || numel(names) ~= 4 + 3 + 2, strjoin(names, ','));
+            this.verifyFalse(any(contains(names, 'ser-502')) || numel(names) ~= 4 + 3 + 4, strjoin(names, ','));
             this.verifyEqual(r.refused, 0, strjoin(r.refusals, ' | '));
             this.verifyEqual(r.quarantined, 0);
             % Every dcm2niix release writes AcquisitionTime; newer ones also write TimeZero,
@@ -123,7 +123,7 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
         end
         function test_roi_mask_geometry(this)
             m = dir(fullfile(this.outRoot, '**', '*_roi-wholebrain*_proc-shdeid_mask.nii.gz'));
-            this.verifyEqual(numel(m), 1);
+            this.verifyEqual(numel(m), 2);
             mask = niftiread(fullfile(m(1).folder, m(1).name));
             this.verifyEqual(size(mask), [16 16 4]);
             this.verifyGreaterThan(nnz(mask), 0);
@@ -136,17 +136,21 @@ classdef Test_SafeHarbor < matlab.unittest.TestCase
             % In NIfTI RAS that is (+4, +4). The centroid of the mask, mapped through the sform
             % of the file it was written with, must land there: this pins the LPS/RAS handling and
             % the DICOM-grid to dcm2niix-grid placement.
+            % Two structure sets: one on a PET stored with increasing z, one with decreasing z (MIM/Siemens
+            % order, which made createMask fail with 'PixelExtentInWorldZ'); both must land at the same RAS.
             m = dir(fullfile(this.outRoot, '**', '*_roi-leftcaudate*_proc-shdeid_mask.nii.gz'));
-            this.assertEqual(numel(m), 1);
-            gz = fullfile(m(1).folder, m(1).name);
-            mask = niftiread(gz); S = mlphibroker.Nifti1.sform(gz);
-            [i, j, k] = ind2sub(size(mask), find(mask));
-            c = S * [mean(i) - 1; mean(j) - 1; mean(k) - 1; 1];
-            this.verifyEqual(c(1:2)', [4 4], 'AbsTol', 0.6);
-            this.verifyEqual(c(3), 3, 'AbsTol', 0.6);          % slices at z = 0,2,4,6 mm
-            this.verifyGreaterThan(nnz(mask), 4 * 20); this.verifyLessThan(nnz(mask), 4 * 40);
-            scm = jsondecode(fileread(regexprep(gz, '\.nii\.gz$', '.json')));
-            this.verifyEqual(mlphibroker.Nifti1.sform(fullfile(m(1).folder, scm.ReferenceFile)), S);   % same grid as its reference PET
+            this.assertEqual(numel(m), 2);
+            for q = 1:numel(m)
+                gz = fullfile(m(q).folder, m(q).name);
+                mask = niftiread(gz); S = mlphibroker.Nifti1.sform(gz);
+                [i, j, k] = ind2sub(size(mask), find(mask));
+                c = S * [mean(i) - 1; mean(j) - 1; mean(k) - 1; 1];
+                this.verifyEqual(c(1:2)', [4 4], 'AbsTol', 0.6, m(q).name);
+                this.verifyEqual(c(3), 3, 'AbsTol', 0.6, m(q).name);          % slices at z = 0,2,4,6 mm
+                this.verifyGreaterThan(nnz(mask), 4 * 20); this.verifyLessThan(nnz(mask), 4 * 40);
+                scm = jsondecode(fileread(regexprep(gz, '\.nii\.gz$', '.json')));
+                this.verifyEqual(mlphibroker.Nifti1.sform(fullfile(m(q).folder, scm.ReferenceFile)), S);   % same grid as its reference PET
+            end
         end
         function test_crosswalk_template_then_load(this)
             tmp = fullfile(this.outRoot, 'template_PHI.csv');

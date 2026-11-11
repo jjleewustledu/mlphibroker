@@ -51,7 +51,7 @@ def base_ds(sop_class, patient, study, acq, series_uid, series_no, modality, des
     return ds
 
 
-def write_pet(folder, patient, study, acq, nx=16, ny=16, nz=4):
+def write_pet(folder, patient, study, acq, nx=16, ny=16, nz=4, descending=False):
     series_uid = generate_uid()
     starts, durs = [0, 30, 60, 120], [30, 30, 60, 60]
     sops = []
@@ -67,11 +67,12 @@ def write_pet(folder, patient, study, acq, nx=16, ny=16, nz=4):
             ds.ImageType = ["ORIGINAL", "PRIMARY"]
             ds.PatientPosition = "HFS"
             ds.BodyPartExamined = "BRAIN"
-            ds.ImagePositionPatient = [-8.0, -8.0, float(z * 2.0)]
+            zpos = float((nz - 1 - z) * 2.0) if descending else float(z * 2.0)
+            ds.ImagePositionPatient = [-8.0, -8.0, zpos]
             ds.ImageOrientationPatient = [1, 0, 0, 0, 1, 0]
             ds.PixelSpacing = [1.0, 1.0]
             ds.SliceThickness = 2.0
-            ds.SliceLocation = float(z * 2.0)
+            ds.SliceLocation = zpos
             ds.Rows, ds.Columns = ny, nx
             ds.SamplesPerPixel = 1
             ds.PhotometricInterpretation = "MONOCHROME2"
@@ -100,7 +101,7 @@ def write_pet(folder, patient, study, acq, nx=16, ny=16, nz=4):
             ds.PixelData = (rng.integers(0, 2000, size=(ny, nx)) + f * 100).astype(np.uint16).tobytes()
             ds.save_as(folder / f"PT_{f:02d}_{z:02d}.dcm", write_like_original=False)
             if f == 0:
-                sops.append((ds.SOPClassUID, ds.SOPInstanceUID, float(z * 2.0)))
+                sops.append((ds.SOPClassUID, ds.SOPInstanceUID, zpos))
     return series_uid, sops
 
 
@@ -275,6 +276,8 @@ for k, day in enumerate((5, 19)):
     acqB = datetime.datetime(2001, 3, day, 9, 30, 0)
     (root / "export_batch2" / f"B_visit{k}" / "PET").mkdir(parents=True, exist_ok=True)
     (root / "export_batch2" / f"B_visit{k}" / "CT").mkdir(parents=True, exist_ok=True)
-    write_pet(root / "export_batch2" / f"B_visit{k}" / "PET", pB, sB, acqB)
+    uidB, sopsB = write_pet(root / "export_batch2" / f"B_visit{k}" / "PET", pB, sB, acqB, descending=(k == 0))
     write_ct(root / "export_batch2" / f"B_visit{k}" / "CT", pB, sB, acqB)
+    if k == 0:   # a structure set on a PET stored in DECREASING z (the MIM/Siemens export order)
+        write_rtstruct(root / "export_batch2" / f"B_visit{k}" / "PET", pB, sB, acqB, uidB, sopsB)
 print("heterogeneous fixture written under", root)
